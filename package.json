@@ -1,0 +1,26 @@
+{
+  "name": "streamlike-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:web dev:api dev:worker",
+    "dev:web": "npm --workspace=@streamlike/web dev",
+    "dev:api": "npm --workspace=@streamlike/api dev",
+    "dev:worker": "npm --workspace=@streamlike/worker dev",
+    "build": "npm-run-all build:web build:api build:worker",
+    "build:web": "npm --workspace=@streamlike/web build",
+    "build:api": "npm --workspace=@streamlike/api build",
+    "build:worker": "npm --workspace=@streamlike/worker build",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:baseline": "prisma migrate resolve --applied 0_init"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "prisma": "^5.22.0"
+  }
+}

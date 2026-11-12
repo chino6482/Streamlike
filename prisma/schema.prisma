@@ -1,0 +1,73 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  roles             String[] // could be enum in future
+  plan_subscription String?
+  createdAt         DateTime @default(now())
+  videos            Video[]
+}
+
+model Video {
+  id        String      @id @default(uuid())
+  user      User        @relation(fields: [userId], references: [id])
+  userId    String
+  title     String
+  s3Key     String
+  duration  Int // seconds
+  status    VideoStatus @default(PENDING)
+  rawUrl    String?
+  /// Enlace de origen cuando el video se procesa desde una URL (YouTube, TikTok...)
+  sourceUrl String?
+  /// Clave en S3 del video COMPLETO guardado (descargable). Null si no se conservó.
+  originalKey String?
+  clips     Clip[]
+  jobs      JobQueue[]
+  createdAt DateTime    @default(now())
+}
+
+enum VideoStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Clip {
+  id         String     @id @default(uuid())
+  video      Video      @relation(fields: [videoId], references: [id])
+  videoId    String
+  s3Key      String
+  clipUrl    String
+  startTime  Int
+  endTime    Int
+  score      Int // 0-100 viral score
+  format     ClipFormat @default(HORIZONTAL)
+  title      String?
+  viewsCount Int        @default(0)
+  createdAt  DateTime   @default(now())
+}
+
+enum ClipFormat {
+  VERTICAL
+  HORIZONTAL
+}
+
+model JobQueue {
+  id           String   @id @default(uuid())
+  video        Video    @relation(fields: [videoId], references: [id])
+  videoId      String
+  status       String
+  payload      Json
+  errorMessage String?
+  createdAt    DateTime @default(now())
+}
