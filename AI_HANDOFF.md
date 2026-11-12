@@ -4,9 +4,10 @@
 > corregidos** y el **estado en el que quedó** el proyecto, para que otra IA (o
 > una persona) pueda continuar sin perder contexto.
 >
-> Fecha del traspaso: **2026-11-11**
+> Fecha del traspaso: **2026-11-12**
 > Autor de los cambios: sesión de agente anterior.
-> Repositorio: `streamlike` (monorepo, **no** está bajo git actualmente).
+> Repositorio: `streamlike` (monorepo) — **publicado en GitHub**:
+> https://github.com/chino6482/Streamlike (rama `main`, commit inicial `a0a5cd0`).
 
 ---
 
@@ -520,8 +521,10 @@ Archivo principal: `apps/worker/src/worker.ts`.
 12. **Alineación de versiones `socket.io`/`socket.io-client`: ambos en `^4.7.5`,
     correcto; vigilar que no se desalineen en el futuro.
 
-13. **Repositorio sin git.** No hay historial ni commits; todos los cambios están
-    en disco.
+13. **Repositorio bajo git desde 2026-11-12**: se inicializó git, se añadió
+    `.gitignore` + `.env.example` (el `.env` real **nunca** se sube) y se publicó
+    en `https://github.com/chino6482/Streamlike` (público, rama `main`).
+    Pendiente: configurar CI (build + typecheck) y añadir licencia.
 
 14. **Procesar desde enlace (URL)**: ✅ **verificado e2e** (ver §6.2). Ya no está
     pendiente. Recordar que el worker necesita **DNS saliente** (está fijado a
