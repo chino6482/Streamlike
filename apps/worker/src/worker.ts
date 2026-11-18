@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import ffmpeg from 'fluent-ffmpeg';
 import { execFile } from 'child_process';
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -37,12 +38,17 @@ try {
 // Directorio temporal multiplataforma (en Windows es %TEMP%, no /tmp)
 const TMP_DIR = os.tmpdir();
 
-// Parámetros de generación de clips
-const CLIP_DURATION = 15; // segundos por clip
+// Parámetros de generación de clips (adaptativos al estilo OpenShorts)
+const DEFAULT_CLIP_DURATION = 15; // segundos por clip por defecto
 const MAX_CLIPS = 10; // tope de clips por video (evita cientos de encodes)
-const MIN_HIGHLIGHT_SPACING = CLIP_DURATION; // separación mínima entre inicios
 /** Umbral de LUFS bajo el cual un segundo se considera "habla" (comentario / charla). */
 const SPEECH_THRESHOLD_LUFS = -40;
+
+type LayoutMode = 'AUTO' | 'VERTICAL_CROP' | 'BLUR_FILL' | 'SPLIT' | 'SCREENCAST';
+
+function computeClipTarget(duration: number): number {
+  return Math.max(3, Math.min(MAX_CLIPS, Math.floor(duration / 90) + 2));
+}
 
 // ---------- Configuración S3 ----------
 const s3 = new S3Client({
@@ -184,10 +190,13 @@ function pickHighlights(
   samples: LoudnessSample[],
   sceneTimes: number[],
   duration: number,
+  clipDuration = DEFAULT_CLIP_DURATION,
 ): Highlight[] {
   if (duration <= 0) return [{ start: 0, score: 0 }];
 
-  const maxStart = Math.max(0, duration - CLIP_DURATION);
+  const targetClips = computeClipTarget(duration);
+  const minSpacing = Math.max(10, clipDuration);
+  const maxStart = Math.max(0, duration - clipDuration);
 
   // 1. Sonoridad máxima por segundo, normalizada 0..1
   //    Piso EBU R128: por debajo de -70 LUFS se considera silencio.
@@ -210,14 +219,14 @@ function pickHighlights(
     cutsBySecond.set(sec, (cutsBySecond.get(sec) ?? 0) + 1);
   }
 
-  // 3. Puntuar cada ventana candidata [start, start + CLIP_DURATION)
+  // 3. Puntuar cada ventana candidata [start, start + clipDuration)
   const candidates: Highlight[] = [];
   for (let start = 0; start <= maxStart; start++) {
     let loudSum = 0;
     let loudCount = 0;
     let cuts = 0;
     let speechSec = 0;
-    for (let sec = start; sec < start + CLIP_DURATION; sec++) {
+    for (let sec = start; sec < start + clipDuration; sec++) {
       const l = loudBySecond.get(sec);
       if (l !== undefined) {
         loudSum += (l - minL) / range;
@@ -228,7 +237,7 @@ function pickHighlights(
     }
     const audioScore = loudCount ? loudSum / loudCount : 0;
     const speechScore = loudCount ? speechSec / loudCount : 0;
-    // 6 o más cortes en 15 s => acción máxima
+    // 6 o más cortes en ventana => acción máxima
     const actionScore = Math.min(cuts / 6, 1);
     candidates.push({
       start,
@@ -241,19 +250,19 @@ function pickHighlights(
   // 4. Sin señal útil (silencio + sin cortes): intervalos regulares cada 60 s
   if (best < 0.05) {
     const regular: Highlight[] = [];
-    for (let t = 0; t <= maxStart && regular.length < MAX_CLIPS; t += 60) {
+    for (let t = 0; t <= maxStart && regular.length < targetClips; t += 60) {
       regular.push({ start: t, score: 0.5 });
     }
     if (regular.length === 0) regular.push({ start: 0, score: 0.5 });
     return regular;
   }
 
-  // 5. Tomar los mejores respetando separación mínima y tope
+  // 5. Tomar los mejores respetando separación mínima y objetivo adaptativo
   candidates.sort((a, b) => b.score - a.score);
   const chosen: Highlight[] = [];
   for (const c of candidates) {
-    if (chosen.length >= MAX_CLIPS) break;
-    if (chosen.some((x) => Math.abs(x.start - c.start) < MIN_HIGHLIGHT_SPACING)) {
+    if (chosen.length >= targetClips) break;
+    if (chosen.some((x) => Math.abs(x.start - c.start) < minSpacing)) {
       continue;
     }
     chosen.push(c);
@@ -277,26 +286,76 @@ async function downloadSource(
   const VIDEO_PLATFORMS =
     /youtu\.be|youtube\.com|youtu\.nic|tiktok\.com|instagram\.com|twitter\.com|x\.com|vimeo\.com|ok\.ru/i;
   if (VIDEO_PLATFORMS.test(sourceUrl)) {
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        'yt-dlp',
-        [
+    const isYoutube = /^(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i.test(
+      sourceUrl,
+    );
+    let tmpCookiePath: string | null = null;
+    let cookiePath: string | null = null;
+
+    if (process.env.YOUTUBE_COOKIES?.trim()) {
+      tmpCookiePath = path.join(TMP_DIR, `worker-cookies-${crypto.randomUUID()}.txt`);
+      fs.writeFileSync(tmpCookiePath, `${process.env.YOUTUBE_COOKIES.trim()}\n`, {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      cookiePath = tmpCookiePath;
+    } else if (process.env.YTDLP_COOKIES_PATH?.trim() && fs.existsSync(process.env.YTDLP_COOKIES_PATH.trim())) {
+      cookiePath = process.env.YTDLP_COOKIES_PATH.trim();
+    }
+
+    const clients: (string | null)[] = isYoutube
+      ? cookiePath
+        ? [null, 'web,default', 'tv,web_embedded']
+        : [null, 'tv,android_vr', 'ios,android']
+      : [null];
+
+    try {
+      let lastErr: Error | null = null;
+      for (const client of clients) {
+        if (fs.existsSync(outPath)) {
+          try {
+            fs.unlinkSync(outPath);
+          } catch {
+            /* ignore */
+          }
+        }
+        const args = [
           '-f',
           'bv*+ba/b',
           '--merge-output-format',
           'mp4',
           '--no-playlist',
+          ...(isYoutube ? ['--js-runtimes', 'node'] : []),
+          ...(cookiePath ? ['--cookies', cookiePath] : []),
+          ...(client ? ['--extractor-args', `youtube:player_client=${client}`] : []),
           '-o',
           outPath,
+          '--',
           sourceUrl,
-        ],
-        { maxBuffer: 1024 * 1024 * 100 },
-        (err, _stdout, _stderr) => {
-          if (err) reject(err);
-          else resolve();
-        },
-      );
-    });
+        ];
+        try {
+          await new Promise<void>((resolve, reject) => {
+            execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 100 }, (err, _stdout, stderr) => {
+              if (err) reject(new Error(stderr || err.message));
+              else resolve();
+            });
+          });
+          lastErr = null;
+          break;
+        } catch (err: any) {
+          lastErr = err instanceof Error ? err : new Error(String(err));
+        }
+      }
+      if (lastErr) throw lastErr;
+    } finally {
+      if (tmpCookiePath && fs.existsSync(tmpCookiePath)) {
+        try {
+          fs.unlinkSync(tmpCookiePath);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   } else {
     await new Promise<void>((resolve, reject) => {
       ffmpeg(sourceUrl)
@@ -308,13 +367,14 @@ async function downloadSource(
   }
 }
 
-/** Genera un clip a partir del video original */
+/** Genera un clip a partir del video original con el layout de reencuadre seleccionado */
 function generateClip(
   sourcePath: string,
   start: number,
   clipDuration: number,
   format: 'VERTICAL' | 'HORIZONTAL',
   outPath: string,
+  layoutMode: LayoutMode = 'AUTO',
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const ff = ffmpeg(sourcePath)
@@ -329,13 +389,37 @@ function generateClip(
       );
 
     if (format === 'VERTICAL') {
-      // Reencuadre 9:16: escala cubriendo 1080x1920 y recorta al centro.
-      // (El recorte anterior `crop=ih*9/16:ih` producía un ancho impar y x264
-      // fallaba con "width not divisible by 2".)
-      ff.videoFilters([
-        'scale=1080:1920:force_original_aspect_ratio=increase',
-        'crop=1080:1920',
-      ]);
+      if (layoutMode === 'BLUR_FILL') {
+        // Layout GENERAL estilo OpenShorts: fondo desenfocado 9:16 + contenido 16:9 nítido centrado
+        ff.complexFilter([
+          '[0:v]split=2[bg][fg]',
+          '[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[b]',
+          '[fg]scale=1080:-2[f]',
+          '[b][f]overlay=(W-w)/2:(H-h)/2[v]',
+        ]).outputOptions('-map', '[v]', '-map', '0:a?');
+      } else if (layoutMode === 'SPLIT') {
+        // Layout SPLIT estilo OpenShorts: 2 hablantes lado a lado apilados en 9:16 (mitad izq arriba, der abajo)
+        ff.complexFilter([
+          '[0:v]split=2[left][right]',
+          '[left]crop=iw/2:ih:0:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[top]',
+          '[right]crop=iw/2:ih:iw/2:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[bot]',
+          '[top][bot]vstack=inputs=2[v]',
+        ]).outputOptions('-map', '[v]', '-map', '0:a?');
+      } else if (layoutMode === 'SCREENCAST') {
+        // Layout SCREENCAST estilo OpenShorts: pantalla arriba + cámara/recorte abajo
+        ff.complexFilter([
+          '[0:v]split=2[scr][cam]',
+          '[scr]scale=1080:1120:force_original_aspect_ratio=decrease,pad=1080:1120:(ow-iw)/2:(oh-ih)/2:black[top]',
+          '[cam]scale=1080:800:force_original_aspect_ratio=increase,crop=1080:800[bot]',
+          '[top][bot]vstack=inputs=2[v]',
+        ]).outputOptions('-map', '[v]', '-map', '0:a?');
+      } else {
+        // VERTICAL_CROP / AUTO: reencuadre 9:16 centrado (dimensiones pares para x264)
+        ff.videoFilters([
+          'scale=1080:1920:force_original_aspect_ratio=increase',
+          'crop=1080:1920',
+        ]);
+      }
     }
     // HORIZONTAL deja el video tal cual
 
@@ -352,13 +436,20 @@ function generateClip(
 const videoWorker = new Worker(
   'video-processing',
   async (job: Job) => {
-    const { videoId, s3Key, sourceUrl, keepOriginal } = job.data as {
+    const { videoId, s3Key, sourceUrl, keepOriginal, clipDuration, layoutMode } = job.data as {
       videoId: string;
       s3Key: string;
       sourceUrl?: string;
       keepOriginal?: boolean;
+      clipDuration?: number;
+      layoutMode?: LayoutMode;
     };
-    console.log(`[Worker] Procesando video ${videoId}`);
+    const targetClipDuration =
+      clipDuration && [15, 30, 45, 60].includes(clipDuration)
+        ? clipDuration
+        : DEFAULT_CLIP_DURATION;
+    const targetLayoutMode: LayoutMode = layoutMode || 'AUTO';
+    console.log(`[Worker] Procesando video ${videoId} (duración clip=${targetClipDuration}s, layout=${targetLayoutMode})`);
 
     // 1️⃣ Marcar como PROCESSING y notificar
     await prisma.video.update({
@@ -455,13 +546,13 @@ const videoWorker = new Worker(
             return [] as number[];
           }),
         ]);
-        highlights = pickHighlights(samples, sceneTimes, duration);
+        highlights = pickHighlights(samples, sceneTimes, duration, targetClipDuration);
       } catch (err) {
         console.warn(
           `[Worker] Análisis falló para ${videoId}, uso intervalos fijos:`,
           err,
         );
-        highlights = pickHighlights([], [], duration);
+        highlights = pickHighlights([], [], duration, targetClipDuration);
       }
 
       console.log(
@@ -471,11 +562,11 @@ const videoWorker = new Worker(
             .join(', '),
       );
 
-      // 6️⃣ Generar clips (15 s cada uno, ambos formatos)
+      // 6️⃣ Generar clips (duración configurada, ambos formatos)
       const createdClips: any[] = [];
       for (const highlight of highlights) {
         const startSec = highlight.start;
-        const clipDur = Math.min(CLIP_DURATION, duration - startSec);
+        const clipDur = Math.min(targetClipDuration, duration - startSec);
         if (clipDur <= 0) continue;
 
         for (const fmt of ['VERTICAL', 'HORIZONTAL'] as const) {
@@ -484,7 +575,14 @@ const videoWorker = new Worker(
             `${videoId}-clip-${Math.floor(startSec)}-${fmt}.mp4`,
           );
           try {
-            await generateClip(tmpVideo, startSec, clipDur, fmt, clipFile);
+            await generateClip(
+              tmpVideo,
+              startSec,
+              clipDur,
+              fmt,
+              clipFile,
+              targetLayoutMode,
+            );
 
             // Subir clip a S3
             const clipKey = `clips/${videoId}/${path.basename(clipFile)}`;

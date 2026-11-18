@@ -39,4 +39,19 @@ export class CreateVideoDto {
   @IsOptional()
   @IsBoolean()
   keepOriginal?: boolean;
+
+  /** Duración objetivo por clip en segundos (15, 30, 45 o 60). */
+  @IsOptional()
+  @IsNumber()
+  clipDuration?: number;
+
+  /** Modo de reencuadre 9:16 inspirado en OpenShorts (AUTO, VERTICAL_CROP, BLUR_FILL, SPLIT, SCREENCAST). */
+  @IsOptional()
+  @IsString()
+  layoutMode?: string;
+
+  /** Temática / contexto opcional para guiar títulos y hooks virales. */
+  @IsOptional()
+  @IsString()
+  topicHint?: string;
 }

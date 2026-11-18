@@ -5,11 +5,12 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:web dev:api dev:worker",
+    "dev": "npm run dev --workspace=apps/web",
     "dev:web": "npm --workspace=@streamlike/web dev",
     "dev:api": "npm --workspace=@streamlike/api dev",
     "dev:worker": "npm --workspace=@streamlike/worker dev",
-    "build": "npm-run-all build:web build:api build:worker",
+    "build": "npm run build --workspace=apps/web",
+    "start": "npm run start --workspace=apps/web",
     "build:web": "npm --workspace=@streamlike/web build",
     "build:api": "npm --workspace=@streamlike/api build",
     "build:worker": "npm --workspace=@streamlike/worker build",
@@ -22,5 +23,8 @@
   "devDependencies": {
     "npm-run-all": "^4.1.5",
     "prisma": "^5.22.0"
+  },
+  "dependencies": {
+    "@google/genai": "^3.4.0"
   }
 }

@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
   Inject,
   Logger,
 } from '@nestjs/common';
@@ -11,6 +12,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../prisma.service';
 import { CreateVideoDto } from './dto/create-video.dto';
 import { S3_CLIENT } from '../s3/s3.module';
+import {
+  assertPublicUrl,
+  sanitizeStorageKey,
+  UnsafeUrlError,
+} from '../common/ssrf-guard';
 
 @Injectable()
 export class VideoService {
@@ -37,24 +43,51 @@ export class VideoService {
       userId = defaultUser.id;
     }
 
+    let validatedSourceUrl: string | null = null;
+    if (dto.sourceUrl) {
+      try {
+        validatedSourceUrl = await assertPublicUrl(dto.sourceUrl);
+      } catch (err) {
+        if (err instanceof UnsafeUrlError) {
+          throw new BadRequestException(err.message);
+        }
+        throw err;
+      }
+    }
+
+    let safeKey = validatedSourceUrl || dto.s3Key;
+    if (!validatedSourceUrl) {
+      try {
+        safeKey = sanitizeStorageKey(dto.s3Key);
+      } catch (err) {
+        if (err instanceof UnsafeUrlError) {
+          throw new BadRequestException(err.message);
+        }
+        throw err;
+      }
+    }
+
     const video = await prisma.video.create({
       data: {
         title: dto.title,
-        s3Key: dto.sourceUrl || dto.s3Key,
+        s3Key: safeKey,
         duration: dto.duration || 0,
         status: 'PENDING',
-        sourceUrl: dto.sourceUrl || null,
+        sourceUrl: validatedSourceUrl,
         userId,
       },
     });
 
-    // Enviar trabajo a la cola BullMQ
+    // Enviar trabajo a la cola BullMQ con parámetros inspirados en OpenShorts
     await this.videoQueue.add('process', {
       videoId: video.id,
       s3Key: video.s3Key,
-      sourceUrl: dto.sourceUrl,
+      sourceUrl: validatedSourceUrl ?? undefined,
       // Conservar el video completo en S3 para poder descargarlo
       keepOriginal: dto.keepOriginal === true,
+      clipDuration: dto.clipDuration,
+      layoutMode: dto.layoutMode,
+      topicHint: dto.topicHint,
     });
 
     return video;

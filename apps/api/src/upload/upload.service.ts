@@ -1,4 +1,4 @@
-import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Inject, OnModuleInit, Logger, BadRequestException } from '@nestjs/common';
 import {
   S3Client,
   PutObjectCommand,
@@ -8,6 +8,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PresignDto } from './dto/presign.dto';
 import { S3_CLIENT } from '../s3/s3.module';
+import { sanitizeStorageKey, UnsafeUrlError } from '../common/ssrf-guard';
 
 @Injectable()
 export class UploadService implements OnModuleInit {
@@ -38,10 +39,19 @@ export class UploadService implements OnModuleInit {
 
   async createPresignedUrl(dto: PresignDto) {
     const { fileName, contentType } = dto;
+    let safeKey: string;
+    try {
+      safeKey = sanitizeStorageKey(fileName);
+    } catch (err) {
+      if (err instanceof UnsafeUrlError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
     const bucket = process.env.S3_BUCKET;
     const command = new PutObjectCommand({
       Bucket: bucket,
-      Key: fileName,
+      Key: safeKey,
       ContentType: contentType,
     });
     let url = await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
@@ -49,6 +59,6 @@ export class UploadService implements OnModuleInit {
     if (url.includes('localstack:4566')) {
       url = url.replace('localstack:4566', 'localhost:4566');
     }
-    return { url, bucket, key: fileName };
+    return { url, bucket, key: safeKey };
   }
 }
