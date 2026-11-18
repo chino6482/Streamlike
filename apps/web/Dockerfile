@@ -12,9 +12,14 @@ ENV NEXT_PUBLIC_API_KEY=$NEXT_PUBLIC_API_KEY
 RUN npm run build
 
 FROM node:20-alpine
+# ffmpeg/ffprobe: los requiere el pipeline de clips (lib/video-processor.ts)
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
+# yt-dlp empaquetado (se versiona sin bit de ejecución -> chmod necesario)
+COPY --from=builder /app/bin/yt-dlp ./bin/yt-dlp
+RUN chmod +x bin/yt-dlp
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.js ./

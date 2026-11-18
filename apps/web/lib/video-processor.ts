@@ -37,16 +37,20 @@ function isElfBinary(filePath: string): boolean {
 }
 
 function resolveYtDlpCommand(): { cmd: string; prefixArgs: string[] } {
-  const candidates = [
-    path.join(process.cwd(), 'bin', 'yt-dlp'),
-    path.join(process.cwd(), 'apps', 'web', 'bin', 'yt-dlp'),
-    '/app/applet/apps/web/bin/yt-dlp',
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      return isElfBinary(p)
-        ? { cmd: p, prefixArgs: [] }
-        : { cmd: 'python3', prefixArgs: [p] };
+  // El binario empaquetado es ELF de Linux: solo sirve en Docker/Linux. En
+  // Windows fallaría al ejecutarlo, así que ahí se usa el `yt-dlp` del PATH.
+  if (process.platform !== 'win32') {
+    const candidates = [
+      path.join(process.cwd(), 'bin', 'yt-dlp'),
+      path.join(process.cwd(), 'apps', 'web', 'bin', 'yt-dlp'),
+      '/app/applet/apps/web/bin/yt-dlp',
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        return isElfBinary(p)
+          ? { cmd: p, prefixArgs: [] }
+          : { cmd: 'python3', prefixArgs: [p] };
+      }
     }
   }
   return { cmd: 'yt-dlp', prefixArgs: [] };
