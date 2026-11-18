@@ -17,6 +17,10 @@
   (la web actual no los usa, pero siguen como dependencias).
 - Build rápido de verificación: `npm run build` (web), `npm --workspace=@streamlike/api run build`,
   `npm --workspace=@streamlike/worker run build`.
+- `next build` (con `output: 'standalone'` y el lockfile propio de `apps/web`) deja
+  directorios fantasma `apps/web/node_modules/next|styled-jsx` (sin `package.json`).
+  Son inofensivos (el build funciona) pero hacen que `npm ls` reporte
+  "invalid/extraneous". Se limpian con `npm prune`.
 - Para crear el lockfile de `apps/web` (lo usa el `npm ci` de su Dockerfile):
   copiar `package.json`+`package-lock.json` a un dir temporal y correr
   `npm install --package-lock-only` ahí. Los workspaces de npm actualizan el
