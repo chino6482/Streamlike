@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   downloadVideoFromUrl,
+  captureLiveStreamLocal,
   probeVideoDuration,
   analyzeVideoLoudness,
   analyzeVideoScenes,
@@ -10,6 +11,7 @@ import {
   cutClipWithFfmpeg,
   getClipTempPath,
 } from './video-processor';
+import { generateViralClipMetadata } from './gemini-clips';
 
 export type LayoutMode =
   | 'AUTO'
@@ -32,6 +34,9 @@ export interface MockClip {
   format: 'VERTICAL' | 'HORIZONTAL';
   layoutMode?: LayoutMode;
   title?: string;
+  viralScore?: number | null;
+  hookReason?: string | null;
+  transcript?: string | null;
   hookText?: string;
   hookStyle?: HookStyle;
   hookPosition?: HookPosition;
@@ -52,7 +57,13 @@ export interface MockVideo {
   originalKey?: string | null;
   clipDuration?: number;
   layoutMode?: LayoutMode;
+  autoReframe?: boolean;
   topicHint?: string | null;
+  isLiveCapture?: boolean;
+  liveDurationMinutes?: number | null;
+  liveStatus?: 'RECORDING' | 'STOPPED' | 'FINISHED' | null;
+  liveRecordedSeconds?: number;
+  liveFileSizeBytes?: number;
   createdAt: string;
   clips: MockClip[];
 }
@@ -66,6 +77,7 @@ interface MockStore {
   videos: Map<string, MockVideo>;
   files: Map<string, UploadedFileMeta>;
   clipFiles: Map<string, string>;
+  liveStopHandlers: Map<string, () => void>;
 }
 
 const globalForStore = globalThis as unknown as {
@@ -78,11 +90,28 @@ export const mockStore: MockStore =
     videos: new Map<string, MockVideo>(),
     files: new Map<string, UploadedFileMeta>(),
     clipFiles: new Map<string, string>(),
+    liveStopHandlers: new Map<string, () => void>(),
   });
 
-// Garantizar que clipFiles exista si el store ya fue inicializado en HMR
+// Garantizar que clipFiles y liveStopHandlers existan si el store ya fue inicializado en HMR
 if (!mockStore.clipFiles) {
   mockStore.clipFiles = new Map<string, string>();
+}
+if (!mockStore.liveStopHandlers) {
+  mockStore.liveStopHandlers = new Map<string, () => void>();
+}
+
+export function stopLiveLocal(videoId: string): boolean {
+  const v = mockStore.videos.get(videoId);
+  if (!v || !v.isLiveCapture) return false;
+  if (v.liveStatus === 'FINISHED') return false;
+  v.liveStatus = 'STOPPED';
+  v.phase = 'ANALYZING';
+  const stopFn = mockStore.liveStopHandlers.get(videoId);
+  if (stopFn) {
+    stopFn();
+  }
+  return true;
 }
 
 export function getUploadTempPath(key: string): string {
@@ -164,7 +193,7 @@ export function computeAdaptiveClipCount(durationSeconds: number): number {
 export function startRealVideoProcessing(
   videoId: string,
   keepOriginal: boolean,
-  options?: { cookiesText?: string },
+  options?: { cookiesText?: string; geminiApiKey?: string },
 ): void {
   void (async () => {
     const v = mockStore.videos.get(videoId);
@@ -178,7 +207,44 @@ export function startRealVideoProcessing(
       v.phase = 'DOWNLOADING';
       v.errorMessage = null;
 
-      if (v.sourceUrl) {
+      if (v.sourceUrl && v.isLiveCapture) {
+        const downloadedKey = `originals-${v.id}.mp4`;
+        const targetPath = getUploadTempPath(downloadedKey);
+        v.phase = 'LIVE_RECORDING';
+        if (v.liveStatus !== 'STOPPED') {
+          v.liveStatus = 'RECORDING';
+        }
+        const boundedMinutes = Math.max(
+          5,
+          Math.min(120, Math.round(v.liveDurationMinutes || 30)),
+        );
+        const captureRes = await captureLiveStreamLocal(v.sourceUrl, targetPath, {
+          maxDurationSeconds: boundedMinutes * 60,
+          cookiesText: options?.cookiesText,
+          registerStopHandler: (stopFn) => {
+            mockStore.liveStopHandlers.set(v.id, stopFn);
+          },
+          onProgress: (recordedSeconds, fileSizeBytes) => {
+            v.liveRecordedSeconds = recordedSeconds;
+            v.liveFileSizeBytes = fileSizeBytes;
+          },
+        });
+        mockStore.liveStopHandlers.delete(v.id);
+        v.liveRecordedSeconds = captureRes.recordedSeconds;
+        v.liveFileSizeBytes = captureRes.fileSizeBytes;
+        v.liveStatus =
+          captureRes.stoppedManually || v.liveStatus === 'STOPPED'
+            ? 'STOPPED'
+            : 'FINISHED';
+        sourcePath = targetPath;
+        if (keepOriginal) {
+          registerExistingFile(downloadedKey, targetPath, 'video/mp4');
+          v.originalKey = downloadedKey;
+        } else {
+          v.originalKey = null;
+          shouldCleanupSource = true;
+        }
+      } else if (v.sourceUrl) {
         const downloadedKey = `originals-${v.id}.mp4`;
         const targetPath = getUploadTempPath(downloadedKey);
         const { title } = await downloadVideoFromUrl(v.sourceUrl, targetPath, {
@@ -273,6 +339,11 @@ export function startRealVideoProcessing(
             format,
             layoutMode: format === 'VERTICAL' ? layoutMode : undefined,
             title: `Momento destacado ${startTime}s – ${endTime}s`,
+            viralScore: score,
+            hookReason:
+              samples.length > 0
+                ? 'Detectado por pico de sonoridad EBU R128, actividad de habla y cambios de escena.'
+                : 'Segmento extraído y reencuadrado automáticamente con FFmpeg.',
             hookStyle: 'pill',
             hookPosition: 'top',
             why:
@@ -284,6 +355,63 @@ export function startRealVideoProcessing(
         }
       }
 
+      // Enriquecimiento automático opcional con Gemini si hay clave del usuario o de entorno
+      const hasEffectiveGeminiKey = Boolean(
+        options?.geminiApiKey?.trim() ||
+          (process.env.GEMINI_API_KEY &&
+            process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY'),
+      );
+
+      if (hasEffectiveGeminiKey && createdClips.length > 0) {
+        try {
+          const uniqueWindows = new Map<
+            number,
+            { startTime: number; endTime: number; audioScore: number }
+          >();
+          for (const c of createdClips) {
+            if (!uniqueWindows.has(c.startTime)) {
+              uniqueWindows.set(c.startTime, {
+                startTime: c.startTime,
+                endTime: c.endTime,
+                audioScore: c.score,
+              });
+            }
+          }
+          const aiResults = await generateViralClipMetadata(
+            {
+              videoTitle: v.title,
+              sourceUrl: v.sourceUrl,
+              topicHint: v.topicHint || undefined,
+              duration: v.duration,
+              windows: Array.from(uniqueWindows.values()),
+            },
+            options?.geminiApiKey,
+          );
+          const byStart = new Map(aiResults.map((r) => [r.startTime, r]));
+          for (const clip of createdClips) {
+            const match =
+              byStart.get(clip.startTime) ??
+              aiResults.find((r) => Math.abs(r.startTime - clip.startTime) <= 2);
+            if (!match) continue;
+            clip.title = match.title;
+            clip.hookText = match.hookText;
+            clip.why = match.why;
+            clip.hookReason = match.why;
+            clip.caption = match.caption;
+            if (Number.isFinite(match.suggestedScore)) {
+              const bounded = Math.max(
+                0,
+                Math.min(100, Math.round(match.suggestedScore)),
+              );
+              clip.score = bounded;
+              clip.viralScore = bounded;
+            }
+          }
+        } catch {
+          /* fallback silencioso a metadatos heurísticos */
+        }
+      }
+
       v.clips = createdClips;
       v.status = 'COMPLETED';
       v.phase = undefined;
@@ -292,8 +420,12 @@ export function startRealVideoProcessing(
       console.warn(`[Processor] Video ${videoId} detenido: ${msg}`);
       v.status = 'FAILED';
       v.phase = undefined;
+      if (v.isLiveCapture && v.liveStatus === 'RECORDING') {
+        v.liveStatus = 'FINISHED';
+      }
       v.errorMessage = msg;
     } finally {
+      mockStore.liveStopHandlers.delete(v.id);
       if (shouldCleanupSource && sourcePath && fs.existsSync(sourcePath)) {
         try {
           fs.unlinkSync(sourcePath);

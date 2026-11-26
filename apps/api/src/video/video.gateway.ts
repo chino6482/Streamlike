@@ -24,17 +24,17 @@ export class VideoGateway implements OnGatewayInit, OnGatewayConnection {
 
   afterInit() {
     const subscriber = this.redisService.getClient().duplicate();
-    subscriber.subscribe('video-status', (err) => {
+    subscriber.subscribe('video-status', 'live:progress', (err) => {
       if (err) console.error('[Gateway] Redis subscribe error:', err);
     });
 
     subscriber.on('message', (channel, message) => {
-      if (channel === 'video-status') {
+      if (channel === 'video-status' || channel === 'live:progress') {
         try {
           const payload = JSON.parse(message);
-          this.server.emit('video-status', payload);
+          this.server.emit(channel, payload);
         } catch {
-          this.server.emit('video-status', message);
+          this.server.emit(channel, message);
         }
       }
     });

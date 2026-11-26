@@ -30,11 +30,12 @@ export class GeminiConfigError extends Error {
 
 export async function generateViralClipMetadata(
   input: ClipAnalysisInput,
+  overrideApiKey?: string,
 ): Promise<EnhancedClipMetadata[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = overrideApiKey?.trim() || process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
     throw new GeminiConfigError(
-      'GEMINI_API_KEY no está configurada. Configúrala en Settings > Secrets para usar la generación de hooks y títulos con IA.',
+      'GEMINI_API_KEY no está configurada. Añade tu clave en "Configuración de API Keys" o configúrala en el servidor para generar hooks y títulos con IA.',
     );
   }
 

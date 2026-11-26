@@ -5,18 +5,23 @@ import {
   Delete,
   Body,
   Param,
+  Headers,
   HttpCode,
 } from '@nestjs/common';
 import { VideoService } from './video.service';
-import { CreateVideoDto } from './dto/create-video.dto';
+import { CreateVideoDto, sanitizeGeminiHeaderKey } from './dto/create-video.dto';
 
 @Controller('videos')
 export class VideoController {
   constructor(private readonly videoService: VideoService) {}
 
   @Post()
-  async create(@Body() dto: CreateVideoDto) {
-    return this.videoService.create(dto);
+  async create(
+    @Body() dto: CreateVideoDto,
+    @Headers('x-gemini-key') geminiKeyHeader?: string | string[],
+  ) {
+    const geminiApiKey = sanitizeGeminiHeaderKey(geminiKeyHeader);
+    return this.videoService.create(dto, { geminiApiKey });
   }
 
   @Get()
@@ -37,6 +42,13 @@ export class VideoController {
   @HttpCode(200)
   async download(@Param('id') id: string) {
     return this.videoService.getDownloadUrl(id);
+  }
+
+  /** Detiene una captura en vivo activa y dispara el análisis y generación de clips. */
+  @Post(':id/stop-live')
+  @HttpCode(200)
+  async stopLive(@Param('id') id: string) {
+    return this.videoService.stopLive(id);
   }
 
   /** Elimina el video, sus clips y los objetos asociados en S3. */

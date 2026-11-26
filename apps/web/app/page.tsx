@@ -29,7 +29,15 @@ import {
   Info,
   ChevronDown,
   ShieldCheck,
+  Radio,
+  Square,
 } from 'lucide-react';
+import { ApiKeysSettings } from '@/components/ApiKeysSettings';
+import {
+  buildApiHeaders,
+  readStoredGeminiKey,
+  writeStoredGeminiKey,
+} from '@/lib/api-headers';
 
 type LayoutMode =
   | 'AUTO'
@@ -49,11 +57,14 @@ interface Clip {
   score: number;
   format: 'VERTICAL' | 'HORIZONTAL';
   layoutMode?: LayoutMode;
-  title?: string;
+  title?: string | null;
+  viralScore?: number | null;
+  hookReason?: string | null;
+  transcript?: string | null;
   hookText?: string;
   hookStyle?: HookStyle;
   hookPosition?: HookPosition;
-  why?: string;
+  why?: string | null;
   caption?: string;
 }
 
@@ -73,6 +84,11 @@ interface Video {
   clipDuration?: number;
   layoutMode?: LayoutMode;
   topicHint?: string | null;
+  isLiveCapture?: boolean;
+  liveDurationMinutes?: number | null;
+  liveStatus?: 'RECORDING' | 'STOPPED' | 'FINISHED' | null;
+  liveRecordedSeconds?: number;
+  liveFileSizeBytes?: number;
   createdAt: string;
   clips?: Clip[];
 }
@@ -94,10 +110,7 @@ const API_BASE =
     : ENV_API_URL;
 // Cabecera opcional de API key (solo si el backend exige API_KEY)
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
-const apiHeaders: Record<string, string> = {
-  Accept: 'application/json',
-  ...(API_KEY ? { 'x-api-key': API_KEY } : {}),
-};
+const baseApiHeaders: Record<string, string> = buildApiHeaders({ apiKey: API_KEY });
 
 const LAYOUT_LABELS: Record<LayoutMode, { label: string; hint: string }> = {
   AUTO: { label: 'Auto 9:16', hint: 'Recorte inteligente estándar' },
@@ -135,6 +148,7 @@ export default function Dashboard() {
   /** Opciones inspiradas en OpenShorts: duración de clip, reencuadre y contexto */
   const [clipDuration, setClipDuration] = useState<number>(15);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('AUTO');
+  const [autoReframe, setAutoReframe] = useState<boolean>(true);
   const [topicHint, setTopicHint] = useState('');
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -142,6 +156,7 @@ export default function Dashboard() {
   const [formatFilter, setFormatFilter] = useState<'ALL' | 'VERTICAL' | 'HORIZONTAL'>('ALL');
   const [enhancingAi, setEnhancingAi] = useState(false);
   const [copiedClipId, setCopiedClipId] = useState<string | null>(null);
+  const [copiedTitleId, setCopiedTitleId] = useState<string | null>(null);
   const [expandedWhyId, setExpandedWhyId] = useState<string | null>(null);
 
   /** Modal de edición de clip / hook (estilo ClipEditor + HookModal de OpenShorts) */
@@ -152,6 +167,31 @@ export default function Dashboard() {
   const [confirmTarget, setConfirmTarget] = useState<Video | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+
+  /** Captura de transmisión en vivo (1 directo activo a la vez) */
+  const [isLiveCapture, setIsLiveCapture] = useState<boolean>(false);
+  const [liveDurationMinutes, setLiveDurationMinutes] = useState<number>(30);
+  const [stoppingLiveId, setStoppingLiveId] = useState<string | null>(null);
+  const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    setGeminiApiKey(readStoredGeminiKey());
+  }, []);
+
+  const getRequestHeaders = useCallback(
+    () =>
+      buildApiHeaders({
+        apiKey: API_KEY,
+        geminiKey: readStoredGeminiKey() || geminiApiKey,
+      }),
+    [geminiApiKey],
+  );
+
+  const handleSaveGeminiKey = useCallback((nextKey: string) => {
+    const persisted = writeStoredGeminiKey(nextKey);
+    setGeminiApiKey(persisted);
+  }, []);
 
   const videoList = useMemo(
     () => (Array.isArray(videos) ? videos : []),
@@ -168,6 +208,14 @@ export default function Dashboard() {
     if (formatFilter === 'ALL') return clips;
     return clips.filter((c) => c.format === formatFilter);
   }, [selectedVideo, formatFilter]);
+
+  const hasActiveLive = useMemo(
+    () =>
+      videoList.some(
+        (v) => v.isLiveCapture && v.liveStatus === 'RECORDING',
+      ),
+    [videoList],
+  );
 
   const stats = useMemo(
     () => ({
@@ -190,7 +238,7 @@ export default function Dashboard() {
 
   const fetchVideos = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE}/videos`, { headers: apiHeaders });
+      const res = await axios.get(`${API_BASE}/videos`, { headers: baseApiHeaders });
       if (Array.isArray(res.data)) {
         setVideos(res.data);
       } else {
@@ -217,13 +265,44 @@ export default function Dashboard() {
       setVideos((prev) =>
         (Array.isArray(prev) ? prev : []).map((v) =>
           v.id === payload.id
-            ? { ...v, status: payload.status, phase: payload.phase }
+            ? {
+                ...v,
+                status: payload.status ?? v.status,
+                phase: payload.phase ?? v.phase,
+                ...(payload.liveStatus !== undefined
+                  ? { liveStatus: payload.liveStatus }
+                  : {}),
+              }
             : v,
         ),
       );
-      if (payload.status === 'COMPLETED') {
+      if (payload.status === 'COMPLETED' || payload.status === 'FAILED') {
         fetchVideos();
       }
+    });
+
+    socket.on('live:progress', (payload: any) => {
+      if (!payload?.videoId) return;
+      setVideos((prev) =>
+        (Array.isArray(prev) ? prev : []).map((v) =>
+          v.id === payload.videoId
+            ? {
+                ...v,
+                liveRecordedSeconds:
+                  typeof payload.recordedSeconds === 'number'
+                    ? payload.recordedSeconds
+                    : v.liveRecordedSeconds,
+                liveFileSizeBytes:
+                  typeof payload.fileSizeBytes === 'number'
+                    ? payload.fileSizeBytes
+                    : v.liveFileSizeBytes,
+                ...(payload.liveStatus !== undefined
+                  ? { liveStatus: payload.liveStatus }
+                  : {}),
+              }
+            : v,
+        ),
+      );
     });
 
     return () => {
@@ -240,6 +319,33 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchVideos, stats.pending]);
 
+  // Reloj 1s mientras exista una transmisión en vivo grabando (mm:ss fluido)
+  useEffect(() => {
+    if (!hasActiveLive) return;
+    setLiveNowMs(Date.now());
+    const timer = setInterval(() => setLiveNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasActiveLive]);
+
+  const formatLiveElapsed = useCallback(
+    (video: Video): string => {
+      const elapsedSec =
+        typeof video.liveRecordedSeconds === 'number' &&
+        video.liveRecordedSeconds > 0
+          ? video.liveRecordedSeconds
+          : Math.max(
+              0,
+              Math.floor(
+                (liveNowMs - new Date(video.createdAt).getTime()) / 1000,
+              ),
+            );
+      const mins = Math.floor(elapsedSec / 60);
+      const secs = elapsedSec % 60;
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    },
+    [liveNowMs],
+  );
+
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
@@ -251,11 +357,13 @@ export default function Dashboard() {
       try {
         const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
 
+        const reqHeaders = getRequestHeaders();
+
         // 1. Obtener URL prefirmada
         const presignRes = await axios.post(
           `${API_BASE}/upload/presign`,
           { fileName, contentType: file.type || 'video/mp4' },
-          { headers: apiHeaders },
+          { headers: baseApiHeaders },
         );
         const { url } = presignRes.data;
 
@@ -272,7 +380,7 @@ export default function Dashboard() {
           },
         });
 
-        // 3. Registrar el video en la API con la configuración de clipping
+        // 3. Registrar el video en la API con la configuración de clipping y x-gemini-key
         const created = await axios.post(
           `${API_BASE}/videos`,
           {
@@ -282,9 +390,10 @@ export default function Dashboard() {
             keepOriginal,
             clipDuration,
             layoutMode,
+            autoReframe,
             topicHint: topicHint.trim() || undefined,
           },
-          { headers: apiHeaders },
+          { headers: reqHeaders },
         );
 
         await fetchVideos();
@@ -303,7 +412,7 @@ export default function Dashboard() {
         setUploadProgress(0);
       }
     },
-    [fetchVideos, keepOriginal, clipDuration, layoutMode, topicHint],
+    [fetchVideos, keepOriginal, clipDuration, layoutMode, autoReframe, topicHint, getRequestHeaders],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -311,7 +420,7 @@ export default function Dashboard() {
     const id = confirmTarget.id;
     setDeleting(true);
     try {
-      await axios.delete(`${API_BASE}/videos/${id}`, { headers: apiHeaders });
+      await axios.delete(`${API_BASE}/videos/${id}`, { headers: baseApiHeaders });
       setVideos((prev) =>
         (Array.isArray(prev) ? prev : []).filter((v) => v.id !== id),
       );
@@ -351,19 +460,29 @@ export default function Dashboard() {
       const res = await axios.post(
         `${API_BASE}/videos`,
         {
-          title: `video-${Date.now()}.mp4`,
+          title: isLiveCapture
+            ? `live-${Date.now()}.mp4`
+            : `video-${Date.now()}.mp4`,
           s3Key: url,
           duration: 0,
           sourceUrl: url,
           keepOriginal,
           clipDuration,
           layoutMode,
+          autoReframe,
           topicHint: topicHint.trim() || undefined,
+          isLiveCapture,
+          ...(isLiveCapture ? { liveDurationMinutes } : {}),
           youtubeCookies: youtubeCookies.trim() || undefined,
         },
-        { headers: apiHeaders },
+        { headers: getRequestHeaders() },
       );
-      setToast({ type: 'success', message: 'Video en cola desde el enlace' });
+      setToast({
+        type: 'success',
+        message: isLiveCapture
+          ? 'Captura en vivo iniciada. Puedes detenerla cuando quieras para extraer los clips.'
+          : 'Video en cola desde el enlace',
+      });
       setLinkUrl('');
       if (res.data?.id) setSelectedId(res.data.id);
       await fetchVideos();
@@ -378,13 +497,61 @@ export default function Dashboard() {
     } finally {
       setProcessingFromLink(false);
     }
-  }, [fetchVideos, linkUrl, keepOriginal, clipDuration, layoutMode, topicHint, youtubeCookies]);
+  }, [
+    fetchVideos,
+    linkUrl,
+    keepOriginal,
+    clipDuration,
+    layoutMode,
+    autoReframe,
+    topicHint,
+    isLiveCapture,
+    liveDurationMinutes,
+    youtubeCookies,
+    getRequestHeaders,
+  ]);
+
+  const stopLiveCapture = useCallback(
+    async (video: Video) => {
+      setStoppingLiveId(video.id);
+      try {
+        await axios.post(
+          `${API_BASE}/videos/${video.id}/stop-live`,
+          {},
+          { headers: baseApiHeaders },
+        );
+        setVideos((prev) =>
+          (Array.isArray(prev) ? prev : []).map((v) =>
+            v.id === video.id
+              ? { ...v, liveStatus: 'STOPPED', phase: 'ANALYZING' }
+              : v,
+          ),
+        );
+        setToast({
+          type: 'success',
+          message: 'Captura detenida. Generando clips con IA...',
+        });
+        await fetchVideos();
+      } catch (err: any) {
+        console.warn('No se pudo detener la captura en vivo:', err?.response?.data?.message || err?.message);
+        setToast({
+          type: 'error',
+          message:
+            err?.response?.data?.message ||
+            'No se pudo detener la captura en vivo',
+        });
+      } finally {
+        setStoppingLiveId((cur) => (cur === video.id ? null : cur));
+      }
+    },
+    [fetchVideos],
+  );
 
   const downloadFullVideo = useCallback(async (video: Video) => {
     setDownloadingId(video.id);
     try {
       const res = await axios.get(`${API_BASE}/videos/${video.id}/download`, {
-        headers: apiHeaders,
+        headers: baseApiHeaders,
       });
       const { url, filename } = res.data;
       const a = document.createElement('a');
@@ -414,10 +581,14 @@ export default function Dashboard() {
   const enhanceWithAi = useCallback(async (video: Video) => {
     setEnhancingAi(true);
     try {
-      const res = await axios.post('/api/ai/enhance-clips', {
-        videoId: video.id,
-        topicHint: video.topicHint || topicHint.trim() || undefined,
-      });
+      const res = await axios.post(
+        '/api/ai/enhance-clips',
+        {
+          videoId: video.id,
+          topicHint: video.topicHint || topicHint.trim() || undefined,
+        },
+        { headers: getRequestHeaders() },
+      );
       if (res.data && typeof res.data === 'object' && res.data.id) {
         setVideos((prev) =>
           (Array.isArray(prev) ? prev : []).map((v) =>
@@ -440,7 +611,7 @@ export default function Dashboard() {
     } finally {
       setEnhancingAi(false);
     }
-  }, [topicHint]);
+  }, [topicHint, getRequestHeaders]);
 
   const saveClipEdits = useCallback(async () => {
     if (!selectedVideo || !editingClip) return;
@@ -458,7 +629,7 @@ export default function Dashboard() {
           layoutMode: editingClip.layoutMode,
           caption: editingClip.caption,
         },
-        { headers: apiHeaders },
+        { headers: baseApiHeaders },
       );
       const updatedClip: Clip = res.data;
       if (updatedClip && updatedClip.id) {
@@ -490,6 +661,29 @@ export default function Dashboard() {
     }
   }, [selectedVideo, editingClip]);
 
+  const writeClipboardWithFallback = useCallback(async (text: string) => {
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch {
+        /* fallback a textarea si el iframe o contexto HTTP bloquea Clipboard API */
+      }
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (!ok) {
+      throw new Error('Clipboard copy failed');
+    }
+  }, []);
+
   const copySocialKit = useCallback(async (clip: Clip) => {
     const text = [
       clip.title,
@@ -499,14 +693,27 @@ export default function Dashboard() {
       .filter(Boolean)
       .join('\n\n');
     try {
-      await navigator.clipboard.writeText(text || `Clip ${clip.startTime}s-${clip.endTime}s`);
+      await writeClipboardWithFallback(text || `Clip ${clip.startTime}s-${clip.endTime}s`);
       setCopiedClipId(clip.id);
       setTimeout(() => setCopiedClipId((cur) => (cur === clip.id ? null : cur)), 2000);
       setToast({ type: 'success', message: 'Título y copy copiados al portapapeles' });
     } catch {
       setToast({ type: 'error', message: 'No se pudo copiar al portapapeles' });
     }
-  }, []);
+  }, [writeClipboardWithFallback]);
+
+  const copyClipTitle = useCallback(async (clip: Clip) => {
+    const titleText =
+      clip.title?.trim() || `Clip ${clip.startTime}s – ${clip.endTime}s`;
+    try {
+      await writeClipboardWithFallback(titleText);
+      setCopiedTitleId(clip.id);
+      setTimeout(() => setCopiedTitleId((cur) => (cur === clip.id ? null : cur)), 2000);
+      setToast({ type: 'success', message: 'Título copiado al portapapeles' });
+    } catch {
+      setToast({ type: 'error', message: 'No se pudo copiar el título' });
+    }
+  }, [writeClipboardWithFallback]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -548,6 +755,13 @@ export default function Dashboard() {
           <StatCard icon={Scissors} label="Clips generados" value={stats.clips} />
         </div>
       </section>
+
+      {/* ---------------- Configuración de API Keys ---------------- */}
+      <ApiKeysSettings
+        savedKey={geminiApiKey}
+        onSaveKey={handleSaveGeminiKey}
+        onNotify={setToast}
+      />
 
       {/* ---------------- Configuración de Clipping (OpenShorts style) ---------------- */}
       <section className="animate-fade-up rounded-3xl border border-white/5 bg-white/[0.02] p-6 backdrop-blur sm:p-8">
@@ -611,6 +825,44 @@ export default function Dashboard() {
               className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-indigo-500/60"
             />
           </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/5 bg-slate-950/40 px-4 py-3">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+              <span>Auto-Reframe Facial (9:16)</span>
+              <span
+                className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                  autoReframe
+                    ? 'bg-emerald-500/15 text-emerald-300'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {autoReframe ? 'Activo' : 'Desactivado'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Centra dinámicamente al hablante activo en 9:16; si no hay personas en escena, mantiene el encuadre seleccionado.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoReframe}
+            aria-label="Auto-Reframe Facial (9:16)"
+            onClick={() => setAutoReframe((prev) => !prev)}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition ${
+              autoReframe
+                ? 'border-indigo-500 bg-indigo-600'
+                : 'border-white/15 bg-slate-800'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                autoReframe ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
         </div>
       </section>
 
@@ -681,15 +933,96 @@ export default function Dashboard() {
           <button
             onClick={processFromUrl}
             disabled={processingFromLink}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-3 text-sm font-semibold text-white transition hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50"
+            className={`inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${
+              isLiveCapture
+                ? 'bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500'
+                : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500'
+            }`}
           >
             {processingFromLink ? (
               <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isLiveCapture ? (
+              <Radio className="h-4 w-4" />
             ) : (
               <Wand2 className="h-4 w-4" />
             )}
-            Procesar
+            {isLiveCapture ? 'Iniciar captura Live' : 'Procesar'}
           </button>
+        </div>
+
+        {/* Modo Transmisión en Vivo (Live) */}
+        <div className="mt-4 space-y-3 rounded-2xl border border-white/5 bg-slate-950/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+                <Radio
+                  className={`h-3.5 w-3.5 ${
+                    isLiveCapture ? 'animate-pulse text-rose-400' : 'text-slate-400'
+                  }`}
+                />
+                <span>Modo Transmisión en Vivo (Live)</span>
+                {isLiveCapture && (
+                  <span className="rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-300">
+                    LIVE
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Soporta YouTube Live, Twitch, Kick y TikTok Live (1 directo activo a la vez)
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isLiveCapture}
+              aria-label="Modo Transmisión en Vivo (Live)"
+              onClick={() => setIsLiveCapture((prev) => !prev)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition ${
+                isLiveCapture
+                  ? 'border-rose-500 bg-rose-600'
+                  : 'border-white/15 bg-slate-800'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                  isLiveCapture ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-3">
+            <label className="text-xs font-medium text-slate-400">
+              Duración máxima de captura
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {[15, 30, 60, 120].map((mins) => (
+                <button
+                  key={mins}
+                  type="button"
+                  onClick={() => {
+                    setLiveDurationMinutes(mins);
+                    if (!isLiveCapture) setIsLiveCapture(true);
+                  }}
+                  className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    liveDurationMinutes === mins && isLiveCapture
+                      ? 'border-rose-500 bg-rose-500/20 text-rose-200'
+                      : liveDurationMinutes === mins
+                      ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-200'
+                      : 'border-white/10 bg-slate-900/60 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                  }`}
+                >
+                  {mins} min
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {hasActiveLive && isLiveCapture && (
+            <p className="text-[11px] font-medium text-amber-300">
+              Ya hay una transmisión en vivo capturándose. Detén el directo activo antes de iniciar otro.
+            </p>
+          )}
         </div>
 
         <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs text-slate-400 transition hover:border-indigo-500/30">
@@ -875,8 +1208,43 @@ export default function Dashboard() {
                   >
                     {video.title}
                   </h3>
-                  <StatusBadge status={video.status} />
+                  {video.isLiveCapture && video.liveStatus === 'RECORDING' ? (
+                    <span className="inline-flex shrink-0 animate-pulse items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-0.5 text-[11px] font-bold text-rose-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                      EN VIVO • Grabando ({formatLiveElapsed(video)})
+                    </span>
+                  ) : (
+                    <StatusBadge status={video.status} />
+                  )}
                 </div>
+
+                {video.isLiveCapture && video.liveStatus === 'RECORDING' && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2">
+                    <span className="text-[11px] text-rose-200">
+                      Límite {video.liveDurationMinutes || 30} min
+                      {typeof video.liveFileSizeBytes === 'number' &&
+                      video.liveFileSizeBytes > 0
+                        ? ` · ${(video.liveFileSizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                        : ''}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={stoppingLiveId === video.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        stopLiveCapture(video);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-rose-500 disabled:opacity-50"
+                    >
+                      {stoppingLiveId === video.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Square className="h-3 w-3 fill-current" />
+                      )}
+                      Detener y extraer clips ahora
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between border-t border-white/5 pt-3 text-xs text-slate-400">
                   <span>
@@ -916,7 +1284,30 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge status={selectedVideo.status} />
+              {selectedVideo.isLiveCapture &&
+              selectedVideo.liveStatus === 'RECORDING' ? (
+                <>
+                  <span className="inline-flex shrink-0 animate-pulse items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-0.5 text-xs font-bold text-rose-300">
+                    <span className="h-2 w-2 rounded-full bg-rose-400" />
+                    EN VIVO • Grabando ({formatLiveElapsed(selectedVideo)})
+                  </span>
+                  <button
+                    type="button"
+                    disabled={stoppingLiveId === selectedVideo.id}
+                    onClick={() => stopLiveCapture(selectedVideo)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-500 disabled:opacity-50"
+                  >
+                    {stoppingLiveId === selectedVideo.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                    )}
+                    Detener y extraer clips ahora
+                  </button>
+                </>
+              ) : (
+                <StatusBadge status={selectedVideo.status} />
+              )}
               {selectedVideo.clips && selectedVideo.clips.length > 0 && (
                 <button
                   onClick={() => enhanceWithAi(selectedVideo)}
@@ -1040,13 +1431,18 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <p className="text-sm text-slate-400">
-                    {selectedVideo.status === 'PROCESSING'
-                      ? selectedVideo.phase === 'DOWNLOADING'
+                    {selectedVideo.isLiveCapture &&
+                    selectedVideo.liveStatus === 'RECORDING'
+                      ? `Grabando transmisión en vivo (${formatLiveElapsed(selectedVideo)})... Puedes detener la captura cuando quieras para analizar con Gemini y generar los clips.`
+                      : selectedVideo.status === 'PROCESSING'
+                      ? selectedVideo.phase === 'LIVE_RECORDING'
+                        ? 'Capturando transmisión en vivo...'
+                        : selectedVideo.phase === 'DOWNLOADING'
                         ? 'Descargando el video desde la URL de origen...'
                         : selectedVideo.phase === 'DURATION'
                         ? 'Midiendo la duración real del video con ffprobe...'
                         : selectedVideo.phase === 'ANALYZING'
-                        ? 'Analizando sonoridad (EBU R128) y cortes de escena...'
+                        ? 'Analizando momentos virales y sonoridad...'
                         : selectedVideo.phase === 'CUTTING'
                         ? 'Cortando y reencuadrando los clips MP4 con FFmpeg...'
                         : 'Procesando video con FFmpeg...'
@@ -1064,7 +1460,7 @@ export default function Dashboard() {
                     className="flex flex-col justify-between space-y-3 rounded-2xl border border-white/5 bg-slate-950/50 p-4 transition hover:border-white/10"
                   >
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-1.5">
                           <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-slate-300">
                             {clip.format}
@@ -1075,10 +1471,24 @@ export default function Dashboard() {
                             </span>
                           )}
                         </div>
-                        <span className="inline-flex items-center gap-1 font-semibold text-amber-400">
-                          <TrendingUp className="h-3.5 w-3.5" />
-                          {clip.score}
-                        </span>
+                        {(() => {
+                          const scoreValue = clip.viralScore ?? clip.score;
+                          const badgeStyle =
+                            scoreValue >= 85
+                              ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                              : scoreValue >= 65
+                              ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
+                              : 'border-slate-500/30 bg-slate-500/15 text-slate-300';
+                          return (
+                            <span
+                              title="Puntuación de viralidad IA"
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${badgeStyle}`}
+                            >
+                              <TrendingUp className="h-3 w-3" />
+                              Viral {scoreValue}/100
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       {/* Vista previa del clip cortado + Hook Overlay en vivo */}
@@ -1119,34 +1529,62 @@ export default function Dashboard() {
                       </div>
 
                       <div>
-                        <p className="line-clamp-2 text-sm font-semibold text-slate-100">
-                          {clip.title || `Clip ${clip.startTime}s – ${clip.endTime}s`}
-                        </p>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="line-clamp-2 flex-1 text-sm font-semibold text-slate-100">
+                            {clip.title || `Clip ${clip.startTime}s – ${clip.endTime}s`}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => copyClipTitle(clip)}
+                            title="Copiar título sugerido"
+                            aria-label="Copiar título sugerido"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:border-indigo-500/40 hover:text-indigo-300"
+                          >
+                            {copiedTitleId === clip.id ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-400" />
+                                <span className="text-emerald-300">Copiado</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>Título</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                         <p className="mt-1 text-xs text-slate-500">
                           {formatDuration(clip.startTime)} – {formatDuration(clip.endTime)} ·{' '}
                           {Math.max(1, clip.endTime - clip.startTime)}s
                         </p>
                       </div>
 
-                      {/* Explicación "Por qué es viral" (inspirado en ResultCard de OpenShorts) */}
-                      {clip.why && (
-                        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-xs text-slate-400">
+                      {/* Hook reason desplegable */}
+                      {(clip.hookReason || clip.why) && (
+                        <div className="rounded-xl border border-white/5 bg-white/[0.02] text-xs text-slate-400">
                           <button
                             type="button"
+                            aria-expanded={expandedWhyId === clip.id}
                             onClick={() =>
                               setExpandedWhyId((cur) => (cur === clip.id ? null : clip.id))
                             }
-                            className="flex w-full items-start gap-1.5 text-left"
+                            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition hover:text-slate-200"
                           >
-                            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-400" />
-                            <span
-                              className={
-                                expandedWhyId === clip.id ? '' : 'line-clamp-2'
-                              }
-                            >
-                              {clip.why}
+                            <span className="inline-flex items-center gap-1.5 font-medium text-slate-300">
+                              <Info className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+                              Por qué retiene audiencia
                             </span>
+                            <ChevronDown
+                              className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${
+                                expandedWhyId === clip.id ? 'rotate-180' : ''
+                              }`}
+                            />
                           </button>
+                          {expandedWhyId === clip.id && (
+                            <p className="border-t border-white/5 px-3 py-2 leading-relaxed text-slate-300">
+                              {clip.hookReason || clip.why}
+                            </p>
+                          )}
                         </div>
                       )}
 

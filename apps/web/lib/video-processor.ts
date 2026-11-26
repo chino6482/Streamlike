@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn, ChildProcess } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -47,9 +47,19 @@ function resolveYtDlpCommand(): { cmd: string; prefixArgs: string[] } {
     ];
     for (const p of candidates) {
       if (fs.existsSync(p)) {
-        return isElfBinary(p)
-          ? { cmd: p, prefixArgs: [] }
-          : { cmd: 'python3', prefixArgs: [p] };
+        if (isElfBinary(p)) {
+          try {
+            fs.accessSync(p, fs.constants.X_OK);
+          } catch {
+            try {
+              fs.chmodSync(p, 0o755);
+            } catch {
+              /* ignore chmod failures on read-only fs */
+            }
+          }
+          return { cmd: p, prefixArgs: [] };
+        }
+        return { cmd: 'python3', prefixArgs: [p] };
       }
     }
   }
@@ -308,6 +318,249 @@ export async function downloadVideoFromUrl(
     throw new Error('No se pudo guardar el video descargado');
   }
   return {};
+}
+
+/**
+ * Graba una transmisión en vivo en modo local (standalone Next.js) usando
+ * `yt-dlp --no-part --hls-use-mpegts` -> `ffmpeg` (MPEG-TS -> MP4), respetando
+ * señal de detención manual y reportando progreso en segundos/bytes.
+ */
+export async function captureLiveStreamLocal(
+  sourceUrl: string,
+  outMp4Path: string,
+  options: {
+    maxDurationSeconds: number;
+    cookiesText?: string;
+    registerStopHandler?: (stopFn: () => void) => void;
+    onProgress?: (recordedSeconds: number, fileSizeBytes: number) => void;
+  },
+): Promise<{ stoppedManually: boolean; recordedSeconds: number; fileSizeBytes: number }> {
+  const dir = path.dirname(outMp4Path);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (fs.existsSync(outMp4Path)) fs.unlinkSync(outMp4Path);
+
+  const tmpTsPath = `${outMp4Path}.ts`;
+  if (fs.existsSync(tmpTsPath)) fs.unlinkSync(tmpTsPath);
+
+  const { cmd: ytdlpCmd, prefixArgs } = resolveYtDlpCommand();
+  const isYoutube = YOUTUBE_URL_RE.test(sourceUrl);
+  const { cookiePath, cleanup } = resolveCookiesFile(options.cookiesText);
+
+  let ytdlpProc: ChildProcess | null = null;
+  let ffmpegProc: ChildProcess | null = null;
+  let stoppedManually = false;
+  let stopTriggered = false;
+  let progressTimer: NodeJS.Timeout | null = null;
+  let hardTimeout: NodeJS.Timeout | null = null;
+  const startedAt = Date.now();
+  const stderrLog: string[] = [];
+
+  const triggerStop = (manual: boolean) => {
+    if (stopTriggered) return;
+    stopTriggered = true;
+    if (manual) stoppedManually = true;
+    try {
+      if (ffmpegProc && !ffmpegProc.killed) {
+        if (ffmpegProc.stdin?.writable) {
+          ffmpegProc.stdin.write('q\n');
+          ffmpegProc.stdin.end();
+        }
+        ffmpegProc.kill('SIGINT');
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (ytdlpProc && ytdlpProc.exitCode === null) {
+        ytdlpProc.kill('SIGTERM');
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  options.registerStopHandler?.(() => triggerStop(true));
+
+  try {
+    const ytdlpArgs = [
+      ...prefixArgs,
+      '--no-part',
+      '--hls-use-mpegts',
+      '--no-playlist',
+      '--no-warnings',
+      '--socket-timeout',
+      '20',
+      ...(isYoutube ? ['--js-runtimes', 'node'] : []),
+      ...(cookiePath ? ['--cookies', cookiePath] : []),
+      '-f',
+      'b',
+      '-o',
+      '-',
+      '--',
+      sourceUrl,
+    ];
+
+    const ffmpegArgs = [
+      '-hide_banner',
+      '-loglevel',
+      'warning',
+      '-y',
+      '-i',
+      'pipe:0',
+      '-t',
+      String(Math.max(10, Math.round(options.maxDurationSeconds))),
+      '-c',
+      'copy',
+      '-f',
+      'mpegts',
+      tmpTsPath,
+    ];
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const done = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve();
+      };
+
+      ytdlpProc = spawn(ytdlpCmd, ytdlpArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: false,
+      });
+      ffmpegProc = spawn('ffmpeg', ffmpegArgs, {
+        stdio: ['pipe', 'ignore', 'pipe'],
+        shell: false,
+      });
+
+      ytdlpProc.stderr?.on('data', (d) => {
+        stderrLog.push(String(d));
+        if (stderrLog.length > 30) stderrLog.shift();
+      });
+      ffmpegProc.stderr?.on('data', (d) => {
+        stderrLog.push(String(d));
+        if (stderrLog.length > 30) stderrLog.shift();
+      });
+
+      if (ytdlpProc.stdout && ffmpegProc.stdin) {
+        ytdlpProc.stdout.pipe(ffmpegProc.stdin);
+        ytdlpProc.stdout.on('error', () => {});
+        ffmpegProc.stdin.on('error', () => {});
+      }
+
+      ytdlpProc.on('error', (err) => {
+        triggerStop(false);
+        done(new Error(`Error iniciando yt-dlp en vivo: ${err.message}`));
+      });
+      ffmpegProc.on('error', (err) => {
+        triggerStop(false);
+        done(new Error(`Error iniciando ffmpeg en vivo: ${err.message}`));
+      });
+
+      progressTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+        let bytes = 0;
+        try {
+          if (fs.existsSync(tmpTsPath)) bytes = fs.statSync(tmpTsPath).size;
+        } catch {
+          /* ignore */
+        }
+        options.onProgress?.(elapsed, bytes);
+      }, 2_000);
+
+      hardTimeout = setTimeout(
+        () => triggerStop(false),
+        (Math.max(10, Math.round(options.maxDurationSeconds)) + 45) * 1000,
+      );
+
+      ffmpegProc.on('close', () => {
+        try {
+          if (ytdlpProc && ytdlpProc.exitCode === null) ytdlpProc.kill('SIGTERM');
+        } catch {
+          /* ignore */
+        }
+        const captured = fs.existsSync(tmpTsPath) ? fs.statSync(tmpTsPath).size : 0;
+        if (captured > 0) {
+          done();
+        } else {
+          done(
+            new Error(
+              stderrLog.join('').trim().slice(-500) ||
+                'No se recibió señal de video de la transmisión en vivo.',
+            ),
+          );
+        }
+      });
+    });
+
+    try {
+      await runExecFile(
+        'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel',
+          'warning',
+          '-y',
+          '-i',
+          tmpTsPath,
+          '-c',
+          'copy',
+          '-bsf:a',
+          'aac_adtstoasc',
+          '-movflags',
+          '+faststart',
+          outMp4Path,
+        ],
+        180_000,
+      );
+    } catch {
+      await runExecFile(
+        'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel',
+          'warning',
+          '-y',
+          '-i',
+          tmpTsPath,
+          '-c:v',
+          'libx264',
+          '-preset',
+          'veryfast',
+          '-c:a',
+          'aac',
+          '-pix_fmt',
+          'yuv420p',
+          '-movflags',
+          '+faststart',
+          outMp4Path,
+        ],
+        240_000,
+      );
+    }
+
+    const fileSizeBytes = fs.existsSync(outMp4Path) ? fs.statSync(outMp4Path).size : 0;
+    if (!fileSizeBytes) {
+      throw new Error('No se pudo consolidar el archivo MP4 de la captura en vivo.');
+    }
+    return {
+      stoppedManually,
+      recordedSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
+      fileSizeBytes,
+    };
+  } finally {
+    if (progressTimer) clearInterval(progressTimer);
+    if (hardTimeout) clearTimeout(hardTimeout);
+    cleanup();
+    if (fs.existsSync(tmpTsPath)) {
+      try {
+        fs.unlinkSync(tmpTsPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 }
 
 export async function probeVideoDuration(filePath: string): Promise<number> {

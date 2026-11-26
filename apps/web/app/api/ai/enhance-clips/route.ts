@@ -4,6 +4,7 @@ import {
   generateViralClipMetadata,
   GeminiConfigError,
 } from '@/lib/gemini-clips';
+import { sanitizeGeminiKey } from '@/lib/api-headers';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,13 +54,18 @@ export async function POST(req: NextRequest) {
         ? body.topicHint.trim()
         : video.topicHint || undefined;
 
-    const results = await generateViralClipMetadata({
-      videoTitle: video.title,
-      sourceUrl: video.sourceUrl,
-      topicHint,
-      duration: video.duration,
-      windows: Array.from(uniqueWindowsMap.values()),
-    });
+    const headerGeminiKey = sanitizeGeminiKey(req.headers.get('x-gemini-key'));
+
+    const results = await generateViralClipMetadata(
+      {
+        videoTitle: video.title,
+        sourceUrl: video.sourceUrl,
+        topicHint,
+        duration: video.duration,
+        windows: Array.from(uniqueWindowsMap.values()),
+      },
+      headerGeminiKey,
+    );
 
     const byStart = new Map(results.map((r) => [r.startTime, r]));
     for (const clip of video.clips) {
@@ -70,9 +76,12 @@ export async function POST(req: NextRequest) {
       clip.title = match.title;
       clip.hookText = match.hookText;
       clip.why = match.why;
+      clip.hookReason = match.why;
       clip.caption = match.caption;
       if (Number.isFinite(match.suggestedScore)) {
-        clip.score = Math.max(0, Math.min(100, Math.round(match.suggestedScore)));
+        const bounded = Math.max(0, Math.min(100, Math.round(match.suggestedScore)));
+        clip.score = bounded;
+        clip.viralScore = bounded;
       }
     }
 

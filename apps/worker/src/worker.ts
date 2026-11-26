@@ -13,6 +13,25 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as dotenv from 'dotenv';
 import Redis from 'ioredis';
+import {
+  analyzeVideoWithGemini,
+  GEMINI_MODEL,
+  resolveGeminiApiKey,
+} from './gemini-analyzer';
+import {
+  escapeFfmpegFilterPath,
+  writeAssSubtitleFile,
+} from './subtitle-generator';
+import {
+  buildPublicObjectUrl,
+  resolveWorkerS3Config,
+} from './s3-config';
+import { buildDynamicCropFilter } from './video-processor';
+import {
+  formatLiveProgressPayload,
+  normalizeLiveDurationMinutes,
+  recordLiveStream,
+} from './live-recorder';
 
 dotenv.config();
 
@@ -50,21 +69,8 @@ function computeClipTarget(duration: number): number {
   return Math.max(3, Math.min(MAX_CLIPS, Math.floor(duration / 90) + 2));
 }
 
-// ---------- Configuración S3 ----------
-const s3 = new S3Client({
-  endpoint: process.env.S3_ENDPOINT,
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-  forcePathStyle: true,
-  // AWS SDK v3 reciente valida checksums CRC32 por defecto y LocalStack 2.3
-  // responde con un `x-amz-checksum-crc32` inválido -> "InvalidRequest".
-  // Con WHEN_REQUIRED solo se calcula/valida cuando el backend lo exige.
-  requestChecksumCalculation: 'WHEN_REQUIRED',
-  responseChecksumValidation: 'WHEN_REQUIRED',
-});
+// ---------- Configuración S3 (LocalStack, Cloudflare R2, Supabase Storage) ----------
+const s3 = new S3Client(resolveWorkerS3Config());
 
 // ---------- Redis ----------
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -84,6 +90,11 @@ async function publishStatus(payload: object) {
   await redis.publish('video-status', JSON.stringify(payload));
 }
 
+/** Publica progreso de captura en vivo en el canal Redis "live:progress" */
+async function publishLiveProgress(payload: object) {
+  await redis.publish('live:progress', JSON.stringify(payload));
+}
+
 /** Obtiene la duración total del video (en segundos, sin redondear) */
 function getVideoDuration(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -100,10 +111,15 @@ interface LoudnessSample {
   loudness: number;
 }
 
-/** Instante candidato para iniciar un clip, con su puntuación 0..1. */
+/** Instante candidato para iniciar un clip, con su puntuación 0..1 y metadatos opcionales de IA. */
 interface Highlight {
   start: number;
+  end?: number;
   score: number;
+  title?: string;
+  viralScore?: number;
+  hookReason?: string;
+  transcript?: string;
 }
 
 /**
@@ -367,7 +383,7 @@ async function downloadSource(
   }
 }
 
-/** Genera un clip a partir del video original con el layout de reencuadre seleccionado */
+/** Genera un clip a partir del video original con el layout de reencuadre seleccionado, Auto-Reframe facial opcional y subtítulos ASS en vertical */
 function generateClip(
   sourcePath: string,
   start: number,
@@ -375,6 +391,8 @@ function generateClip(
   format: 'VERTICAL' | 'HORIZONTAL',
   outPath: string,
   layoutMode: LayoutMode = 'AUTO',
+  assSubtitlePath?: string | null,
+  dynamicCropFilters?: string[] | null,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const ff = ffmpeg(sourcePath)
@@ -389,36 +407,68 @@ function generateClip(
       );
 
     if (format === 'VERTICAL') {
-      if (layoutMode === 'BLUR_FILL') {
+      const escapedAss = assSubtitlePath
+        ? escapeFfmpegFilterPath(assSubtitlePath)
+        : null;
+
+      if (dynamicCropFilters && dynamicCropFilters.length > 0) {
+        const filters = [...dynamicCropFilters];
+        if (escapedAss) {
+          filters.push(`ass=${escapedAss}`);
+        }
+        ff.videoFilters(filters);
+      } else if (layoutMode === 'BLUR_FILL') {
         // Layout GENERAL estilo OpenShorts: fondo desenfocado 9:16 + contenido 16:9 nítido centrado
-        ff.complexFilter([
+        const filters = [
           '[0:v]split=2[bg][fg]',
           '[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[b]',
           '[fg]scale=1080:-2[f]',
-          '[b][f]overlay=(W-w)/2:(H-h)/2[v]',
-        ]).outputOptions('-map', '[v]', '-map', '0:a?');
+          escapedAss
+            ? '[b][f]overlay=(W-w)/2:(H-h)/2[vpre]'
+            : '[b][f]overlay=(W-w)/2:(H-h)/2[v]',
+        ];
+        if (escapedAss) {
+          filters.push(`[vpre]ass=${escapedAss}[v]`);
+        }
+        ff.complexFilter(filters).outputOptions('-map', '[v]', '-map', '0:a?');
       } else if (layoutMode === 'SPLIT') {
         // Layout SPLIT estilo OpenShorts: 2 hablantes lado a lado apilados en 9:16 (mitad izq arriba, der abajo)
-        ff.complexFilter([
+        const filters = [
           '[0:v]split=2[left][right]',
           '[left]crop=iw/2:ih:0:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[top]',
           '[right]crop=iw/2:ih:iw/2:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[bot]',
-          '[top][bot]vstack=inputs=2[v]',
-        ]).outputOptions('-map', '[v]', '-map', '0:a?');
+          escapedAss
+            ? '[top][bot]vstack=inputs=2[vpre]'
+            : '[top][bot]vstack=inputs=2[v]',
+        ];
+        if (escapedAss) {
+          filters.push(`[vpre]ass=${escapedAss}[v]`);
+        }
+        ff.complexFilter(filters).outputOptions('-map', '[v]', '-map', '0:a?');
       } else if (layoutMode === 'SCREENCAST') {
         // Layout SCREENCAST estilo OpenShorts: pantalla arriba + cámara/recorte abajo
-        ff.complexFilter([
+        const filters = [
           '[0:v]split=2[scr][cam]',
           '[scr]scale=1080:1120:force_original_aspect_ratio=decrease,pad=1080:1120:(ow-iw)/2:(oh-ih)/2:black[top]',
           '[cam]scale=1080:800:force_original_aspect_ratio=increase,crop=1080:800[bot]',
-          '[top][bot]vstack=inputs=2[v]',
-        ]).outputOptions('-map', '[v]', '-map', '0:a?');
+          escapedAss
+            ? '[top][bot]vstack=inputs=2[vpre]'
+            : '[top][bot]vstack=inputs=2[v]',
+        ];
+        if (escapedAss) {
+          filters.push(`[vpre]ass=${escapedAss}[v]`);
+        }
+        ff.complexFilter(filters).outputOptions('-map', '[v]', '-map', '0:a?');
       } else {
         // VERTICAL_CROP / AUTO: reencuadre 9:16 centrado (dimensiones pares para x264)
-        ff.videoFilters([
+        const filters = [
           'scale=1080:1920:force_original_aspect_ratio=increase',
           'crop=1080:1920',
-        ]);
+        ];
+        if (escapedAss) {
+          filters.push(`ass=${escapedAss}`);
+        }
+        ff.videoFilters(filters);
       }
     }
     // HORIZONTAL deja el video tal cual
@@ -436,27 +486,66 @@ function generateClip(
 const videoWorker = new Worker(
   'video-processing',
   async (job: Job) => {
-    const { videoId, s3Key, sourceUrl, keepOriginal, clipDuration, layoutMode } = job.data as {
+    const {
+      videoId,
+      s3Key,
+      sourceUrl,
+      keepOriginal,
+      clipDuration,
+      layoutMode,
+      autoReframe,
+      topicHint,
+      geminiApiKey,
+      isLiveCapture,
+      liveDurationMinutes,
+    } = job.data as {
       videoId: string;
       s3Key: string;
       sourceUrl?: string;
       keepOriginal?: boolean;
       clipDuration?: number;
       layoutMode?: LayoutMode;
+      autoReframe?: boolean;
+      topicHint?: string;
+      geminiApiKey?: string;
+      isLiveCapture?: boolean;
+      liveDurationMinutes?: number;
     };
     const targetClipDuration =
       clipDuration && [15, 30, 45, 60].includes(clipDuration)
         ? clipDuration
         : DEFAULT_CLIP_DURATION;
     const targetLayoutMode: LayoutMode = layoutMode || 'AUTO';
-    console.log(`[Worker] Procesando video ${videoId} (duración clip=${targetClipDuration}s, layout=${targetLayoutMode})`);
+    const useAutoReframe = autoReframe !== false;
+    const liveMode = isLiveCapture === true;
+    console.log(
+      `[Worker] Procesando video ${videoId} (duración clip=${targetClipDuration}s, layout=${targetLayoutMode}, autoReframe=${useAutoReframe}, live=${liveMode})`,
+    );
 
     // 1️⃣ Marcar como PROCESSING y notificar
+    const currentVideo = await prisma.video.findUnique({
+      where: { id: videoId },
+      select: { liveStatus: true },
+    });
+    const alreadyStopped = currentVideo?.liveStatus === 'STOPPED';
+
     await prisma.video.update({
       where: { id: videoId },
-      data: { status: 'PROCESSING' },
+      data: {
+        status: 'PROCESSING',
+        ...(liveMode && !alreadyStopped ? { liveStatus: 'RECORDING' } : {}),
+      },
     });
-    await publishStatus({ id: videoId, status: 'PROCESSING' });
+    await publishStatus({
+      id: videoId,
+      status: 'PROCESSING',
+      ...(liveMode
+        ? {
+            phase: 'LIVE_RECORDING',
+            liveStatus: alreadyStopped ? 'STOPPED' : 'RECORDING',
+          }
+        : {}),
+    });
 
     // Nombre temporal: para URLs de origen se usa un sufijo simple (el basename
     // de una URL puede traer caracteres especiales como `?`).
@@ -466,10 +555,59 @@ const videoWorker = new Worker(
     );
 
     try {
-      // 2️⃣ Descargar video al directorio temporal
-      //     - Si hay `sourceUrl` (link directo al video), se descarga por HTTP.
-      //     - Si no, se descarga desde S3.
-      if (sourceUrl) {
+      // 2️⃣ Obtener video fuente: captura en vivo, descarga desde URL o desde S3
+      if (liveMode) {
+        if (!sourceUrl) {
+          throw new Error('Se requiere una URL pública para capturar una transmisión en vivo.');
+        }
+        if (alreadyStopped) {
+          throw new Error('La captura en vivo fue detenida antes de iniciar la grabación.');
+        }
+
+        const boundedMinutes = normalizeLiveDurationMinutes(liveDurationMinutes);
+        const maxDurationSeconds = boundedMinutes * 60;
+        console.log(
+          `[Worker] ${videoId}: iniciando captura en vivo (máx ${boundedMinutes} min) desde ${sourceUrl}`,
+        );
+
+        const captureResult = await recordLiveStream({
+          videoId,
+          sourceUrl,
+          maxDurationSeconds,
+          outMp4Path: tmpVideo,
+          redisUrl: REDIS_URL,
+          onProgress: (event) => publishLiveProgress(event),
+        });
+
+        const latestRecord = await prisma.video.findUnique({
+          where: { id: videoId },
+          select: { liveStatus: true },
+        });
+        const finalLiveStatus =
+          captureResult.stoppedManually || latestRecord?.liveStatus === 'STOPPED'
+            ? 'STOPPED'
+            : 'FINISHED';
+
+        await prisma.video.update({
+          where: { id: videoId },
+          data: { liveStatus: finalLiveStatus },
+        });
+
+        await publishLiveProgress(
+          formatLiveProgressPayload({
+            videoId,
+            recordedSeconds: captureResult.recordedSeconds,
+            fileSizeBytes: captureResult.fileSizeBytes,
+            liveStatus: finalLiveStatus,
+          }),
+        );
+        await publishStatus({
+          id: videoId,
+          status: 'PROCESSING',
+          phase: 'ANALYZING',
+          liveStatus: finalLiveStatus,
+        });
+      } else if (sourceUrl) {
         // URL de origen: yt-dlp para plataformas (YouTube/TikTok/...), ffmpeg HTTP para URLs directas
         await downloadSource(sourceUrl, tmpVideo);
       } else {
@@ -533,26 +671,59 @@ const videoWorker = new Worker(
       // el frontend no reciba un estado inexistente.
       await publishStatus({ id: videoId, status: 'PROCESSING', phase: 'DURATION', duration });
 
-      // 5️⃣ Detección de momentos destacados (audio + acción)
-      let highlights: Highlight[];
-      try {
-        const [samples, sceneTimes] = await Promise.all([
-          analyzeLoudness(tmpVideo).catch((err) => {
-            console.warn(`[Worker] Análisis de audio falló para ${videoId}:`, err);
-            return [] as LoudnessSample[];
-          }),
-          analyzeScenes(tmpVideo).catch((err) => {
-            console.warn(`[Worker] Análisis de escenas falló para ${videoId}:`, err);
-            return [] as number[];
-          }),
-        ]);
-        highlights = pickHighlights(samples, sceneTimes, duration, targetClipDuration);
-      } catch (err) {
-        console.warn(
-          `[Worker] Análisis falló para ${videoId}, uso intervalos fijos:`,
-          err,
+      // 5️⃣ Detección de momentos destacados: Gemini 3 multimodal (primario) -> heurística ebur128 + escenas (respaldo)
+      let highlights: Highlight[] | null = null;
+      const effectiveGeminiKey = resolveGeminiApiKey(geminiApiKey);
+      if (effectiveGeminiKey) {
+        try {
+          console.log(`[Worker] ${videoId}: analizando momentos virales con ${GEMINI_MODEL}...`);
+          const aiMoments = await analyzeVideoWithGemini({
+            videoPath: tmpVideo,
+            duration,
+            geminiApiKey: effectiveGeminiKey,
+            topicHint,
+          });
+          highlights = aiMoments.map((m) => ({
+            start: m.startTime,
+            end: m.endTime,
+            score: m.viralScore / 100,
+            title: m.title,
+            viralScore: m.viralScore,
+            hookReason: m.hookReason,
+            transcript: m.transcript,
+          }));
+        } catch (err: any) {
+          console.warn(
+            `[Worker] Análisis multimodal con Gemini falló para ${videoId} (${err?.message || 'error'}), haciendo fallback a heurística ebur128 + escenas.`,
+          );
+          highlights = null;
+        }
+      } else {
+        console.log(
+          `[Worker] ${videoId}: sin GEMINI_API_KEY disponible, usando heurística ebur128 + escenas.`,
         );
-        highlights = pickHighlights([], [], duration, targetClipDuration);
+      }
+
+      if (!highlights) {
+        try {
+          const [samples, sceneTimes] = await Promise.all([
+            analyzeLoudness(tmpVideo).catch((err) => {
+              console.warn(`[Worker] Análisis de audio falló para ${videoId}:`, err);
+              return [] as LoudnessSample[];
+            }),
+            analyzeScenes(tmpVideo).catch((err) => {
+              console.warn(`[Worker] Análisis de escenas falló para ${videoId}:`, err);
+              return [] as number[];
+            }),
+          ]);
+          highlights = pickHighlights(samples, sceneTimes, duration, targetClipDuration);
+        } catch (err) {
+          console.warn(
+            `[Worker] Análisis falló para ${videoId}, uso intervalos fijos:`,
+            err,
+          );
+          highlights = pickHighlights([], [], duration, targetClipDuration);
+        }
       }
 
       console.log(
@@ -562,58 +733,115 @@ const videoWorker = new Worker(
             .join(', '),
       );
 
-      // 6️⃣ Generar clips (duración configurada, ambos formatos)
+      // 6️⃣ Generar clips (duración devuelta por Gemini o duración configurada en respaldo, ambos formatos)
       const createdClips: any[] = [];
       for (const highlight of highlights) {
         const startSec = highlight.start;
-        const clipDur = Math.min(targetClipDuration, duration - startSec);
+        const requestedDur =
+          highlight.end !== undefined && highlight.end > startSec
+            ? highlight.end - startSec
+            : targetClipDuration;
+        const clipDur = Math.min(requestedDur, duration - startSec);
         if (clipDur <= 0) continue;
 
-        for (const fmt of ['VERTICAL', 'HORIZONTAL'] as const) {
-          const clipFile = path.join(
+        let assSubtitlePath: string | null = null;
+        if (highlight.transcript?.trim()) {
+          const tmpAssFile = path.join(
             TMP_DIR,
-            `${videoId}-clip-${Math.floor(startSec)}-${fmt}.mp4`,
+            `${videoId}-clip-${Math.floor(startSec)}.ass`,
           );
-          try {
-            await generateClip(
-              tmpVideo,
-              startSec,
-              clipDur,
-              fmt,
-              clipFile,
-              targetLayoutMode,
+          assSubtitlePath = await writeAssSubtitleFile(
+            {
+              transcript: highlight.transcript,
+              startTime: startSec,
+              endTime: startSec + clipDur,
+            },
+            tmpAssFile,
+          ).catch((subErr) => {
+            console.warn(`[Worker] Error generando subtítulos .ass para ${videoId}:`, subErr);
+            return null;
+          });
+        }
+
+        let dynamicCropFilters: string[] | null = null;
+        if (
+          useAutoReframe &&
+          targetLayoutMode !== 'SPLIT' &&
+          targetLayoutMode !== 'SCREENCAST'
+        ) {
+          dynamicCropFilters = await buildDynamicCropFilter(
+            tmpVideo,
+            startSec,
+            startSec + clipDur,
+            1080,
+            1920,
+          );
+        }
+
+        try {
+          for (const fmt of ['VERTICAL', 'HORIZONTAL'] as const) {
+            const clipFile = path.join(
+              TMP_DIR,
+              `${videoId}-clip-${Math.floor(startSec)}-${fmt}.mp4`,
             );
+            try {
+              await generateClip(
+                tmpVideo,
+                startSec,
+                clipDur,
+                fmt,
+                clipFile,
+                targetLayoutMode,
+                fmt === 'VERTICAL' ? assSubtitlePath : null,
+                fmt === 'VERTICAL' ? dynamicCropFilters : null,
+              );
 
-            // Subir clip a S3
-            const clipKey = `clips/${videoId}/${path.basename(clipFile)}`;
-            const putCmd = new PutObjectCommand({
-              Bucket: process.env.S3_BUCKET,
-              Key: clipKey,
-              Body: fs.createReadStream(clipFile),
-              ContentType: 'video/mp4',
-            });
-            await s3.send(putCmd);
+              // Subir clip a S3
+              const clipKey = `clips/${videoId}/${path.basename(clipFile)}`;
+              const putCmd = new PutObjectCommand({
+                Bucket: process.env.S3_BUCKET,
+                Key: clipKey,
+                Body: fs.createReadStream(clipFile),
+                ContentType: 'video/mp4',
+              });
+              await s3.send(putCmd);
 
-            const publicEndpoint =
-              process.env.S3_PUBLIC_ENDPOINT ||
-              process.env.S3_ENDPOINT?.replace('localstack:4566', 'localhost:4566') ||
-              'http://localhost:4566';
-            const clipUrl = `${publicEndpoint}/${process.env.S3_BUCKET}/${clipKey}`;
-            const clipRecord = await prisma.clip.create({
-              data: {
-                videoId,
-                s3Key: clipKey,
-                clipUrl,
-                startTime: Math.floor(startSec),
-                endTime: Math.floor(startSec + clipDur),
-                score: Math.round(highlight.score * 100), // 0..100
-                format: fmt,
-              },
-            });
-            createdClips.push(clipRecord);
-          } finally {
-            // Limpiar archivo temporal del clip (exista o no)
-            if (fs.existsSync(clipFile)) fs.unlinkSync(clipFile);
+              const clipUrl = buildPublicObjectUrl({
+                bucket: process.env.S3_BUCKET || '',
+                key: clipKey,
+                publicEndpoint: process.env.S3_PUBLIC_ENDPOINT,
+                s3Endpoint: process.env.S3_ENDPOINT,
+              });
+              const clipRecord = await prisma.clip.create({
+                data: {
+                  videoId,
+                  s3Key: clipKey,
+                  clipUrl,
+                  startTime: Math.floor(startSec),
+                  endTime: Math.round(startSec + clipDur),
+                  score: Math.round(highlight.score * 100), // 0..100
+                  format: fmt,
+                  ...(highlight.title !== undefined ? { title: highlight.title } : {}),
+                  ...(highlight.viralScore !== undefined
+                    ? { viralScore: highlight.viralScore }
+                    : {}),
+                  ...(highlight.hookReason !== undefined
+                    ? { hookReason: highlight.hookReason }
+                    : {}),
+                  ...(highlight.transcript !== undefined
+                    ? { transcript: highlight.transcript }
+                    : {}),
+                },
+              });
+              createdClips.push(clipRecord);
+            } finally {
+              // Limpiar archivo temporal del clip (exista o no)
+              if (fs.existsSync(clipFile)) fs.unlinkSync(clipFile);
+            }
+          }
+        } finally {
+          if (assSubtitlePath && fs.existsSync(assSubtitlePath)) {
+            fs.unlinkSync(assSubtitlePath);
           }
         }
       }
@@ -643,16 +871,22 @@ const videoWorker = new Worker(
 
 videoWorker.on('failed', async (job, err) => {
   const videoId = job?.data?.videoId;
+  const isLiveCapture = job?.data?.isLiveCapture === true;
   console.error(`[Worker] Job ${job?.id} falló:`, err);
 
-  // Marcar el video como FAILED en la base de datos (antes solo se notificaba
-  // por Redis, por lo que el video quedaba "PROCESSING" para siempre).
+  // Marcar el video como FAILED en la base de datos y liberar cualquier bloqueo LIVE
   if (videoId) {
     try {
       await prisma.video.update({
         where: { id: videoId },
         data: { status: 'FAILED' },
       });
+      if (isLiveCapture) {
+        await prisma.video.updateMany({
+          where: { id: videoId, liveStatus: 'RECORDING' },
+          data: { liveStatus: 'FINISHED' },
+        });
+      }
     } catch (dbErr) {
       console.error(`[Worker] No se pudo marcar ${videoId} como FAILED:`, dbErr);
     }
@@ -661,6 +895,7 @@ videoWorker.on('failed', async (job, err) => {
   await publishStatus({
     id: videoId,
     status: 'FAILED',
+    ...(isLiveCapture ? { liveStatus: 'FINISHED' } : {}),
     error: err.message,
   });
 });

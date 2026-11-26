@@ -8,6 +8,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PresignDto } from './dto/presign.dto';
 import { S3_CLIENT } from '../s3/s3.module';
+import { rewritePresignedS3Url } from '../s3/s3.config';
 import { sanitizeStorageKey, UnsafeUrlError } from '../common/ssrf-guard';
 
 @Injectable()
@@ -54,11 +55,8 @@ export class UploadService implements OnModuleInit {
       Key: safeKey,
       ContentType: contentType,
     });
-    let url = await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
-    // Reemplaza host interno de docker para que el navegador del usuario (host) pueda subir a LocalStack
-    if (url.includes('localstack:4566')) {
-      url = url.replace('localstack:4566', 'localhost:4566');
-    }
+    const rawUrl = await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
+    const url = rewritePresignedS3Url(rawUrl);
     return { url, bucket, key: safeKey };
   }
 }

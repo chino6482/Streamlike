@@ -6,6 +6,7 @@ import {
   LayoutMode,
 } from '@/lib/mock-store';
 import { assertPublicUrl, sanitizeStorageKey, UnsafeUrlError } from '@/lib/ssrf-guard';
+import { sanitizeGeminiKey } from '@/lib/api-headers';
 
 const VALID_LAYOUTS = new Set<LayoutMode>([
   'AUTO',
@@ -28,6 +29,22 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
+    const isLiveCapture = body.isLiveCapture === true;
+    const findActiveLive = () =>
+      Array.from(mockStore.videos.values()).find(
+        (v) => v.isLiveCapture && v.liveStatus === 'RECORDING',
+      );
+
+    if (isLiveCapture && findActiveLive()) {
+      return NextResponse.json(
+        {
+          message:
+            'Ya existe una transmisión en vivo capturándose. Solo se permite capturar 1 directo a la vez hasta que finalice o se detenga.',
+        },
+        { status: 409 },
+      );
+    }
+
     let validatedSourceUrl: string | null = null;
     if (body.sourceUrl) {
       let rawSource = String(body.sourceUrl).trim();
@@ -39,6 +56,27 @@ export async function POST(req: NextRequest) {
         rawSource = `https://${rawSource}`;
       }
       validatedSourceUrl = await assertPublicUrl(rawSource);
+    }
+
+    if (isLiveCapture && !validatedSourceUrl) {
+      return NextResponse.json(
+        {
+          message:
+            'El modo transmisión en vivo requiere un enlace público válido (YouTube Live, Twitch, Kick o TikTok Live).',
+        },
+        { status: 400 },
+      );
+    }
+
+    // Segunda verificación síncrona tras los `await` para evitar carreras TOCTOU
+    if (isLiveCapture && findActiveLive()) {
+      return NextResponse.json(
+        {
+          message:
+            'Ya existe una transmisión en vivo capturándose. Solo se permite capturar 1 directo a la vez hasta que finalice o se detenga.',
+        },
+        { status: 409 },
+      );
     }
 
     const s3Key: string = validatedSourceUrl
@@ -74,6 +112,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const rawLiveMins = Number(body.liveDurationMinutes);
+    const liveDurationMinutes = isLiveCapture
+      ? Number.isFinite(rawLiveMins)
+        ? Math.max(5, Math.min(120, Math.round(rawLiveMins)))
+        : 30
+      : null;
+
     const id = crypto.randomUUID();
     const video: MockVideo = {
       id,
@@ -81,19 +126,27 @@ export async function POST(req: NextRequest) {
       s3Key,
       duration: Math.max(0, Number(body.duration) || 0),
       status: 'PENDING',
-      phase: 'QUEUED',
+      phase: isLiveCapture ? 'LIVE_RECORDING' : 'QUEUED',
       errorMessage: null,
       sourceUrl: validatedSourceUrl,
       originalKey: null,
       clipDuration,
       layoutMode,
+      autoReframe: body.autoReframe !== false,
       topicHint: body.topicHint ? String(body.topicHint).slice(0, 240) : null,
+      isLiveCapture,
+      liveDurationMinutes,
+      liveStatus: isLiveCapture ? 'RECORDING' : null,
+      liveRecordedSeconds: isLiveCapture ? 0 : undefined,
+      liveFileSizeBytes: isLiveCapture ? 0 : undefined,
       createdAt: new Date().toISOString(),
       clips: [],
     };
 
+    const geminiApiKey = sanitizeGeminiKey(req.headers.get('x-gemini-key'));
+
     mockStore.videos.set(id, video);
-    startRealVideoProcessing(id, keepOriginal, { cookiesText });
+    startRealVideoProcessing(id, keepOriginal, { cookiesText, geminiApiKey });
 
     return NextResponse.json(video, { status: 201 });
   } catch (err) {

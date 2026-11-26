@@ -1,30 +1,16 @@
 import { Global, Module } from '@nestjs/common';
 import { S3Client } from '@aws-sdk/client-s3';
+import { resolveS3ClientConfig } from './s3.config';
 
 /** Token de inyección del cliente S3 compartido. */
 export const S3_CLIENT = 'S3_CLIENT';
 
 /**
- * Crea el cliente S3 apuntando a LocalStack (o a S3 real si se cambian las
- * variables de entorno).
- *
- * Los flags `requestChecksumCalculation` / `responseChecksumValidation` en
- * `WHEN_REQUIRED` son obligatorios para que funcione contra LocalStack 2.3:
- * el SDK v3 reciente calcula checksums CRC32 por defecto y LocalStack responde
- * con un `x-amz-checksum-crc32` inválido.
+ * Crea el cliente S3 apuntando a LocalStack, Cloudflare R2 (`AWS_REGION=auto`),
+ * Supabase Storage (`/storage/v1/s3`) o AWS S3 estándar.
  */
 export function createS3Client(): S3Client {
-  return new S3Client({
-    region: process.env.AWS_REGION || 'us-east-1',
-    endpoint: process.env.S3_ENDPOINT,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-    },
-    forcePathStyle: true,
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-    responseChecksumValidation: 'WHEN_REQUIRED',
-  });
+  return new S3Client(resolveS3ClientConfig());
 }
 
 /**

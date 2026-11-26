@@ -1,6 +1,6 @@
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -30,6 +30,9 @@ model Video {
   sourceUrl String?
   /// Clave en S3 del video COMPLETO guardado (descargable). Null si no se conservó.
   originalKey String?
+  isLiveCapture       Boolean     @default(false)
+  liveDurationMinutes Int?
+  liveStatus          String?
   clips     Clip[]
   jobs      JobQueue[]
   createdAt DateTime    @default(now())
@@ -53,6 +56,9 @@ model Clip {
   score      Int // 0-100 viral score
   format     ClipFormat @default(HORIZONTAL)
   title      String?
+  viralScore Int?
+  hookReason String?
+  transcript String?
   viewsCount Int        @default(0)
   createdAt  DateTime   @default(now())
 }
