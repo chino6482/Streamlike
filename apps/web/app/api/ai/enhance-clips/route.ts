@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { mockStore } from '@/lib/mock-store';
-import {
-  generateViralClipMetadata,
-  GeminiConfigError,
-} from '@/lib/gemini-clips';
 import { sanitizeGeminiKey } from '@/lib/api-headers';
+import { GeminiConfigError, generateViralClipMetadata } from '@/lib/gemini-clips';
+import { mockStore } from '@/lib/mock-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,18 +10,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const videoId = String(body.videoId || '').trim();
     if (!videoId) {
-      return NextResponse.json(
-        { message: 'videoId es obligatorio' },
-        { status: 400 },
-      );
+      return NextResponse.json({ message: 'videoId es obligatorio' }, { status: 400 });
     }
 
     const video = mockStore.videos.get(videoId);
     if (!video) {
-      return NextResponse.json(
-        { message: `Video ${videoId} no encontrado` },
-        { status: 404 },
-      );
+      return NextResponse.json({ message: `Video ${videoId} no encontrado` }, { status: 404 });
     }
 
     if (!video.clips || video.clips.length === 0) {

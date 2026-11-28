@@ -18,9 +18,13 @@
     "prisma:push": "prisma db push",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:baseline": "prisma migrate resolve --applied 0_init"
+    "prisma:baseline": "prisma migrate resolve --applied 0_init",
+    "lint": "biome lint ./apps",
+    "format": "biome format --write ./apps",
+    "check": "biome check --write ./apps"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.9",
     "npm-run-all": "^4.1.5",
     "prisma": "^5.22.0"
   },

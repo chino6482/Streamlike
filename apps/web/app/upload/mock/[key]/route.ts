@@ -5,10 +5,7 @@ import { sanitizeStorageKey, UnsafeUrlError } from '@/lib/ssrf-guard';
 
 export const dynamic = 'force-dynamic';
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: { key: string } },
-) {
+export async function PUT(req: NextRequest, { params }: { params: { key: string } }) {
   try {
     const key = sanitizeStorageKey(decodeURIComponent(params.key));
     const arrayBuffer = await req.arrayBuffer();
@@ -23,18 +20,12 @@ export async function PUT(
   }
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { key: string } },
-) {
+export async function GET(req: NextRequest, { params }: { params: { key: string } }) {
   let key: string;
   try {
     key = sanitizeStorageKey(decodeURIComponent(params.key));
   } catch (err) {
-    return NextResponse.json(
-      { message: (err as Error).message },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: (err as Error).message }, { status: 400 });
   }
 
   const meta = getUploadedFile(key);
@@ -51,7 +42,7 @@ export async function GET(
   const total = stat.size;
   const download = req.nextUrl.searchParams.get('download') === '1';
   const rawFilename = req.nextUrl.searchParams.get('filename') || 'video.mp4';
-  const safeFilename = rawFilename.replace(/[^\w.\-]+/g, '_');
+  const safeFilename = rawFilename.replace(/[^\w.-]+/g, '_');
 
   const range = req.headers.get('range');
   if (range && !download) {

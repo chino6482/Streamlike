@@ -1,9 +1,6 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  buildFfmpegDynamicCropXExpr,
-  buildDynamicCropFiltersFromTrack,
-} from './video-processor';
+import test from 'node:test';
+import { buildDynamicCropFiltersFromTrack, buildFfmpegDynamicCropXExpr } from './video-processor';
 
 test('buildFfmpegDynamicCropXExpr handles empty, single, and multi-keyframe linear interpolation', () => {
   assert.equal(buildFfmpegDynamicCropXExpr([]), '(iw-ow)/2');
@@ -16,14 +13,14 @@ test('buildFfmpegDynamicCropXExpr handles empty, single, and multi-keyframe line
     { t: 2, x: 0.8 },
     { t: 4, x: 0.5 },
   ]);
-  assert.match(multi, /^clip\(iw\*\(if\(lt\(t,2\),\(0\.2\+0\.3\*t\),if\(lt\(t,4\),\(0\.8-0\.15\*\(t-2\)\),0\.5\)\)\)-ow\/2,0,iw-ow\)$/);
+  assert.match(
+    multi,
+    /^clip\(iw\*\(if\(lt\(t,2\),\(0\.2\+0\.3\*t\),if\(lt\(t,4\),\(0\.8-0\.15\*\(t-2\)\),0\.5\)\)\)-ow\/2,0,iw-ow\)$/,
+  );
 });
 
 test('buildDynamicCropFiltersFromTrack returns null when hasFaces is false and crop+scale filters when true', () => {
-  assert.equal(
-    buildDynamicCropFiltersFromTrack({ hasFaces: false, keyframes: [] }),
-    null,
-  );
+  assert.equal(buildDynamicCropFiltersFromTrack({ hasFaces: false, keyframes: [] }), null);
 
   const filters = buildDynamicCropFiltersFromTrack(
     {

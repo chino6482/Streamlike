@@ -1,8 +1,8 @@
 import {
+  OnGatewayConnection,
+  OnGatewayInit,
   WebSocketGateway,
   WebSocketServer,
-  OnGatewayInit,
-  OnGatewayConnection,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { RedisService } from '../redis.service';

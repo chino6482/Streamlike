@@ -27,13 +27,7 @@ function formatNum(value: number): string {
  */
 export function buildFfmpegDynamicCropXExpr(keyframes: FaceKeyframe[]): string {
   const cleaned = keyframes
-    .filter(
-      (k) =>
-        k &&
-        Number.isFinite(k.t) &&
-        Number.isFinite(k.x) &&
-        k.t >= 0,
-    )
+    .filter((k) => k && Number.isFinite(k.t) && Number.isFinite(k.x) && k.t >= 0)
     .map((k) => ({
       t: Number(k.t.toFixed(3)),
       x: clamp(k.x, 0, 1),

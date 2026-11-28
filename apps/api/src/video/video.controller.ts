@@ -1,15 +1,6 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Delete,
-  Body,
-  Param,
-  Headers,
-  HttpCode,
-} from '@nestjs/common';
-import { VideoService } from './video.service';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Post } from '@nestjs/common';
 import { CreateVideoDto, sanitizeGeminiHeaderKey } from './dto/create-video.dto';
+import { VideoService } from './video.service';
 
 @Controller('videos')
 export class VideoController {

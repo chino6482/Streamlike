@@ -1,37 +1,23 @@
-import { Worker, Job } from 'bullmq';
-import { prisma } from './prisma.service';
-import {
-  S3Client,
-  GetObjectCommand,
-  PutObjectCommand,
-} from '@aws-sdk/client-s3';
-import ffmpeg from 'fluent-ffmpeg';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { Job, Worker } from 'bullmq';
 import { execFile } from 'child_process';
 import * as crypto from 'crypto';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
 import * as dotenv from 'dotenv';
+import ffmpeg from 'fluent-ffmpeg';
+import * as fs from 'fs';
 import Redis from 'ioredis';
-import {
-  analyzeVideoWithGemini,
-  GEMINI_MODEL,
-  resolveGeminiApiKey,
-} from './gemini-analyzer';
-import {
-  escapeFfmpegFilterPath,
-  writeAssSubtitleFile,
-} from './subtitle-generator';
-import {
-  buildPublicObjectUrl,
-  resolveWorkerS3Config,
-} from './s3-config';
-import { buildDynamicCropFilter } from './video-processor';
+import * as os from 'os';
+import * as path from 'path';
+import { analyzeVideoWithGemini, GEMINI_MODEL, resolveGeminiApiKey } from './gemini-analyzer';
 import {
   formatLiveProgressPayload,
   normalizeLiveDurationMinutes,
   recordLiveStream,
 } from './live-recorder';
+import { prisma } from './prisma.service';
+import { buildPublicObjectUrl, resolveWorkerS3Config } from './s3-config';
+import { escapeFfmpegFilterPath, writeAssSubtitleFile } from './subtitle-generator';
+import { buildDynamicCropFilter } from './video-processor';
 
 dotenv.config();
 
@@ -295,10 +281,7 @@ function pickHighlights(
  *   en la imagen Docker) para resolver el stream y descargarlo.
  * - Si es una URL directa a un archivo (MP4/HLS...), se usa ffmpeg HTTP.
  */
-async function downloadSource(
-  sourceUrl: string,
-  outPath: string,
-): Promise<void> {
+async function downloadSource(sourceUrl: string, outPath: string): Promise<void> {
   const VIDEO_PLATFORMS =
     /youtu\.be|youtube\.com|youtu\.nic|tiktok\.com|instagram\.com|twitter\.com|x\.com|vimeo\.com|ok\.ru/i;
   if (VIDEO_PLATFORMS.test(sourceUrl)) {
@@ -315,7 +298,10 @@ async function downloadSource(
         mode: 0o600,
       });
       cookiePath = tmpCookiePath;
-    } else if (process.env.YTDLP_COOKIES_PATH?.trim() && fs.existsSync(process.env.YTDLP_COOKIES_PATH.trim())) {
+    } else if (
+      process.env.YTDLP_COOKIES_PATH?.trim() &&
+      fs.existsSync(process.env.YTDLP_COOKIES_PATH.trim())
+    ) {
       cookiePath = process.env.YTDLP_COOKIES_PATH.trim();
     }
 
@@ -395,21 +381,21 @@ function generateClip(
   dynamicCropFilters?: string[] | null,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ff = ffmpeg(sourcePath)
-      .setStartTime(start)
-      .setDuration(clipDuration)
-      .outputOptions(
-        '-c:v', 'libx264',
-        '-preset', 'veryfast',
-        '-c:a', 'aac',
-        '-pix_fmt', 'yuv420p', // máxima compatibilidad con reproductores
-        '-movflags', '+faststart',
-      );
+    const ff = ffmpeg(sourcePath).setStartTime(start).setDuration(clipDuration).outputOptions(
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-c:a',
+      'aac',
+      '-pix_fmt',
+      'yuv420p', // máxima compatibilidad con reproductores
+      '-movflags',
+      '+faststart',
+    );
 
     if (format === 'VERTICAL') {
-      const escapedAss = assSubtitlePath
-        ? escapeFfmpegFilterPath(assSubtitlePath)
-        : null;
+      const escapedAss = assSubtitlePath ? escapeFfmpegFilterPath(assSubtitlePath) : null;
 
       if (dynamicCropFilters && dynamicCropFilters.length > 0) {
         const filters = [...dynamicCropFilters];
@@ -423,9 +409,7 @@ function generateClip(
           '[0:v]split=2[bg][fg]',
           '[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[b]',
           '[fg]scale=1080:-2[f]',
-          escapedAss
-            ? '[b][f]overlay=(W-w)/2:(H-h)/2[vpre]'
-            : '[b][f]overlay=(W-w)/2:(H-h)/2[v]',
+          escapedAss ? '[b][f]overlay=(W-w)/2:(H-h)/2[vpre]' : '[b][f]overlay=(W-w)/2:(H-h)/2[v]',
         ];
         if (escapedAss) {
           filters.push(`[vpre]ass=${escapedAss}[v]`);
@@ -437,9 +421,7 @@ function generateClip(
           '[0:v]split=2[left][right]',
           '[left]crop=iw/2:ih:0:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[top]',
           '[right]crop=iw/2:ih:iw/2:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[bot]',
-          escapedAss
-            ? '[top][bot]vstack=inputs=2[vpre]'
-            : '[top][bot]vstack=inputs=2[v]',
+          escapedAss ? '[top][bot]vstack=inputs=2[vpre]' : '[top][bot]vstack=inputs=2[v]',
         ];
         if (escapedAss) {
           filters.push(`[vpre]ass=${escapedAss}[v]`);
@@ -451,9 +433,7 @@ function generateClip(
           '[0:v]split=2[scr][cam]',
           '[scr]scale=1080:1120:force_original_aspect_ratio=decrease,pad=1080:1120:(ow-iw)/2:(oh-ih)/2:black[top]',
           '[cam]scale=1080:800:force_original_aspect_ratio=increase,crop=1080:800[bot]',
-          escapedAss
-            ? '[top][bot]vstack=inputs=2[vpre]'
-            : '[top][bot]vstack=inputs=2[v]',
+          escapedAss ? '[top][bot]vstack=inputs=2[vpre]' : '[top][bot]vstack=inputs=2[v]',
         ];
         if (escapedAss) {
           filters.push(`[vpre]ass=${escapedAss}[v]`);
@@ -461,10 +441,7 @@ function generateClip(
         ff.complexFilter(filters).outputOptions('-map', '[v]', '-map', '0:a?');
       } else {
         // VERTICAL_CROP / AUTO: reencuadre 9:16 centrado (dimensiones pares para x264)
-        const filters = [
-          'scale=1080:1920:force_original_aspect_ratio=increase',
-          'crop=1080:1920',
-        ];
+        const filters = ['scale=1080:1920:force_original_aspect_ratio=increase', 'crop=1080:1920'];
         if (escapedAss) {
           filters.push(`ass=${escapedAss}`);
         }
@@ -640,9 +617,7 @@ const videoWorker = new Worker(
             where: { id: videoId },
             data: { originalKey, sourceUrl: sourceUrl ?? null },
           });
-          console.log(
-            `[Worker] ${videoId}: video completo guardado en S3 (${originalKey})`,
-          );
+          console.log(`[Worker] ${videoId}: video completo guardado en S3 (${originalKey})`);
           await publishStatus({
             id: videoId,
             status: 'PROCESSING',
@@ -650,10 +625,7 @@ const videoWorker = new Worker(
           });
         } catch (err) {
           // No es crítico: el resto del pipeline (clips) debe continuar
-          console.warn(
-            `[Worker] No se pudo guardar el video completo de ${videoId}:`,
-            err,
-          );
+          console.warn(`[Worker] No se pudo guardar el video completo de ${videoId}:`, err);
         }
       }
 
@@ -718,19 +690,14 @@ const videoWorker = new Worker(
           ]);
           highlights = pickHighlights(samples, sceneTimes, duration, targetClipDuration);
         } catch (err) {
-          console.warn(
-            `[Worker] Análisis falló para ${videoId}, uso intervalos fijos:`,
-            err,
-          );
+          console.warn(`[Worker] Análisis falló para ${videoId}, uso intervalos fijos:`, err);
           highlights = pickHighlights([], [], duration, targetClipDuration);
         }
       }
 
       console.log(
         `[Worker] ${videoId}: ${highlights.length} highlights -> ` +
-          highlights
-            .map((h) => `${h.start}s(score ${Math.round(h.score * 100)})`)
-            .join(', '),
+          highlights.map((h) => `${h.start}s(score ${Math.round(h.score * 100)})`).join(', '),
       );
 
       // 6️⃣ Generar clips (duración devuelta por Gemini o duración configurada en respaldo, ambos formatos)
@@ -746,10 +713,7 @@ const videoWorker = new Worker(
 
         let assSubtitlePath: string | null = null;
         if (highlight.transcript?.trim()) {
-          const tmpAssFile = path.join(
-            TMP_DIR,
-            `${videoId}-clip-${Math.floor(startSec)}.ass`,
-          );
+          const tmpAssFile = path.join(TMP_DIR, `${videoId}-clip-${Math.floor(startSec)}.ass`);
           assSubtitlePath = await writeAssSubtitleFile(
             {
               transcript: highlight.transcript,
@@ -764,11 +728,7 @@ const videoWorker = new Worker(
         }
 
         let dynamicCropFilters: string[] | null = null;
-        if (
-          useAutoReframe &&
-          targetLayoutMode !== 'SPLIT' &&
-          targetLayoutMode !== 'SCREENCAST'
-        ) {
+        if (useAutoReframe && targetLayoutMode !== 'SPLIT' && targetLayoutMode !== 'SCREENCAST') {
           dynamicCropFilters = await buildDynamicCropFilter(
             tmpVideo,
             startSec,
@@ -856,9 +816,7 @@ const videoWorker = new Worker(
         status: 'COMPLETED',
         clipsCreated: createdClips.length,
       });
-      console.log(
-        `[Worker] Video ${videoId} listo, ${createdClips.length} clips creados`,
-      );
+      console.log(`[Worker] Video ${videoId} listo, ${createdClips.length} clips creados`);
     } finally {
       // 8️⃣ Limpiar video original (también si hubo error)
       if (fs.existsSync(tmpVideo)) fs.unlinkSync(tmpVideo);

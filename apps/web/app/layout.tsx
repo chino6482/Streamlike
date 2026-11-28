@@ -1,6 +1,6 @@
 import './globals.css';
+import { Clapperboard, Github, Sparkles } from 'lucide-react';
 import { ReactNode } from 'react';
-import { Clapperboard, Sparkles, Github } from 'lucide-react';
 
 export const metadata = {
   title: 'StreamLike - AI Video Clipping',

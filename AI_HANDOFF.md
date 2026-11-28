@@ -29,14 +29,14 @@ MP4 directo) gracias a `yt-dlp` + ffmpeg, y **descargar el video completo**
 La pila completa corre con Docker Compose y los 6 contenedores están arriba y
 sanos:
 
-| Contenedor | Estado |
-|---|---|
-| `streamlike-postgres-1` | running (healthy) |
-| `streamlike-redis-1` | running (healthy) |
+| Contenedor                | Estado            |
+| ------------------------- | ----------------- |
+| `streamlike-postgres-1`   | running (healthy) |
+| `streamlike-redis-1`      | running (healthy) |
 | `streamlike-localstack-1` | running (healthy) |
-| `streamlike-api-1` | running |
-| `streamlike-worker-1` | running |
-| `streamlike-web-1` | running |
+| `streamlike-api-1`        | running           |
+| `streamlike-worker-1`     | running           |
+| `streamlike-web-1`        | running           |
 
 ---
 
@@ -78,17 +78,17 @@ docker exec streamlike-localstack-1 awslocal s3 ls
 
 ### Scripts de desarrollo (raíz `package.json`)
 
-| Script | Qué hace |
-|---|---|
-| `npm run dev` | Levanta web + api + worker en paralelo |
-| `npm run dev:web` / `dev:api` / `dev:worker` | Cada app por separado |
-| `npm run build` | Compila web + api + worker |
-| `npm run build:web` / `build:api` / `build:worker` | Compila una app |
-| `npm run prisma:generate` | Genera el cliente Prisma |
-| `npm run prisma:migrate:dev` | Crea/aplica migraciones en desarrollo |
-| `npm run prisma:migrate:deploy` | Aplica migraciones pendientes |
-| `npm run prisma:baseline` | Marca `0_init` como aplicada (baseline) |
-| `npm run prisma:push` | Sincroniza el schema sin migración |
+| Script                                             | Qué hace                                |
+| -------------------------------------------------- | --------------------------------------- |
+| `npm run dev`                                      | Levanta web + api + worker en paralelo  |
+| `npm run dev:web` / `dev:api` / `dev:worker`       | Cada app por separado                   |
+| `npm run build`                                    | Compila web + api + worker              |
+| `npm run build:web` / `build:api` / `build:worker` | Compila una app                         |
+| `npm run prisma:generate`                          | Genera el cliente Prisma                |
+| `npm run prisma:migrate:dev`                       | Crea/aplica migraciones en desarrollo   |
+| `npm run prisma:migrate:deploy`                    | Aplica migraciones pendientes           |
+| `npm run prisma:baseline`                          | Marca `0_init` como aplicada (baseline) |
+| `npm run prisma:push`                              | Sincroniza el schema sin migración      |
 
 > **Nota Windows:** el `ffmpeg` del sistema debe estar en el PATH para correr el
 > worker fuera de Docker. Dentro de Docker se instala con `apk add ffmpeg`.
@@ -105,10 +105,12 @@ Archivo principal: `apps/worker/src/worker.ts`.
    crítico que rompía la subida de clips).
    El AWS SDK v3 reciente calcula checksums CRC32 por defecto, incompatibles con
    LocalStack 2.3. Se añadió en los clientes S3:
+
    ```ts
    requestChecksumCalculation: 'WHEN_REQUIRED',
    responseChecksumValidation: 'WHEN_REQUIRED',
    ```
+
    Aplicado en el worker **y** en la API (`upload.module.ts`).
 
 2. **Los videos fallidos quedaban en `PROCESSING` para siempre.**
@@ -129,9 +131,11 @@ Archivo principal: `apps/worker/src/worker.ts`.
 5. **`width not divisible by 2` al codificar el clip vertical.**
    El filtro anterior `crop=ih*9/16:ih` producía un ancho impar. Se sustituyó
    por:
+
    ```
    scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920
    ```
+
    Resultado verificado: clips **1080x1920, h264**.
 
 6. **Ruta temporal fija `/tmp` no multiplataforma.** Se usa `os.tmpdir()`.
@@ -261,9 +265,11 @@ Archivo principal: `apps/worker/src/worker.ts`.
 1. **`ebur128` no producía muestras** (bug que hacía que TODAS las puntuaciones de
    clip fueran 0 o el fallback).
    Con ffmpeg 8 el filtro imprime `TARGET:-23 LUFS` **entre** `t:` y `M:`:
+
    ```
    [Parsed_ebur128_0 @ ...] t: 0.4  TARGET:-23 LUFS  M:-48.0 S:-120.7  I: -48.0 LUFS  LRA: 0.0 LU
    ```
+
    El regex antiguo `/t:\s*([\d.]+)\s+M:\s*(-?[\d.]+)/` no casaba. Se sustituyó por:
    `/t:\s*([\d.]+).*?M:\s*(-?[\d.]+)/`.
 
@@ -320,7 +326,7 @@ Archivo principal: `apps/worker/src/worker.ts`.
     `yt-dlp --version` → `2026.10.26`.
 
 13. **`-f best` no encontraba formato en YouTube** (`Requested format is not
-    available`): `-f best` elige el formato *pre-mergeado* (en YouTube solo
+    available`): `-f best` elige el formato _pre-mergeado_ (en YouTube solo
     había audio). Se cambió a `-f "bv*+ba/b" --merge-output-format mp4`
     (mejor vídeo + mejor audio, fusionado a MP4).
 
@@ -353,54 +359,54 @@ Archivo principal: `apps/worker/src/worker.ts`.
 
 ### Creados
 
-| Archivo | Propósito |
-|---|---|
-| `AI_HANDOFF.md` | Este documento |
-| `.dockerignore` | Excluye `node_modules`, `dist`, `.next`, `.env`, etc. del contexto |
-| `prisma/migrations/0_init/migration.sql` | Migración inicial del schema |
+| Archivo                                                     | Propósito                                                                  |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `AI_HANDOFF.md`                                             | Este documento                                                             |
+| `.dockerignore`                                             | Excluye `node_modules`, `dist`, `.next`, `.env`, etc. del contexto         |
+| `prisma/migrations/0_init/migration.sql`                    | Migración inicial del schema                                               |
 | `prisma/migrations/1_add_video_source_fields/migration.sql` | Añade `Video.sourceUrl` y `Video.originalKey` (video completo descargable) |
-| `prisma/migrations/migration_lock.toml` | Lock de migraciones (postgresql) |
-| `apps/api/src/redis.config.ts` | `parseRedisUrl()` compartido |
-| `apps/api/src/s3/s3.module.ts` | Módulo global S3 (`S3_CLIENT`, `createS3Client`) compartido entre apps |
-| `apps/api/src/common/api-key.guard.ts` | Guard opcional por API key |
-| `apps/api/package-lock.json` | Lockfile reproducible |
-| `apps/worker/package-lock.json` | Lockfile reproducible |
-| `apps/web/package-lock.json` | Lockfile reproducible |
+| `prisma/migrations/migration_lock.toml`                     | Lock de migraciones (postgresql)                                           |
+| `apps/api/src/redis.config.ts`                              | `parseRedisUrl()` compartido                                               |
+| `apps/api/src/s3/s3.module.ts`                              | Módulo global S3 (`S3_CLIENT`, `createS3Client`) compartido entre apps     |
+| `apps/api/src/common/api-key.guard.ts`                      | Guard opcional por API key                                                 |
+| `apps/api/package-lock.json`                                | Lockfile reproducible                                                      |
+| `apps/worker/package-lock.json`                             | Lockfile reproducible                                                      |
+| `apps/web/package-lock.json`                                | Lockfile reproducible                                                      |
 
 ### Modificados
 
-| Archivo | Cambio |
-|---|---|
-| `apps/worker/src/worker.ts` | Todos los arreglos de video (checksum, ebur128, crop, tmpdir, FAILED, MAX_CLIPS, limpieza, pix_fmt, fases) + heurística multimodal (audio/habla/acción) + `downloadSource()` con `yt-dlp` + guardado del video completo (`keepOriginal`) |
-| `apps/worker/Dockerfile` | `ffmpeg` + `curl`/`ca-certificates` + `python3` + binario `yt-dlp` |
-| `apps/api/src/app.module.ts` | `@nestjs/bullmq` + `parseRedisUrl` + `S3Module` |
-| `apps/api/src/video/video.module.ts` | `@nestjs/bullmq` + `S3Module` |
-| `apps/api/src/video/video.service.ts` | `InjectQueue` de `@nestjs/bullmq` + `S3Client` + `remove()` (borrado, incluye el original) + `getDownloadUrl()` (URL prefirmada del video completo) |
-| `apps/api/src/video/video.controller.ts` | Endpoints `DELETE /videos/:id` y `GET /videos/:id/download` |
-| `apps/api/src/video/dto/create-video.dto.ts` | `sourceUrl?` y `keepOriginal?` |
-| `apps/api/src/video/video.gateway.ts` | `OnGatewayConnection` + validación de API key |
-| `apps/api/src/main.ts` | `useGlobalGuards(new ApiKeyGuard())` |
-| `apps/api/src/redis.service.ts` | URL directa a ioredis |
-| `apps/api/src/upload/upload.module.ts` | `S3Module` |
-| `apps/api/src/upload/upload.service.ts` | `S3_CLIENT` + `onModuleInit` (bucket) + host en presign |
-| `apps/web/app/page.tsx` | `useCallback`, API key, duración, fase, FAILED, stats, toast, modal, eliminar, procesar desde enlace, checkbox "Guardar el video completo" y botón "Descargar video completo" |
-| `apps/web/app/layout.tsx` | Header/footer modernos |
-| `apps/web/app/globals.css` | Aurora, scrollbar, animaciones |
-| `apps/web/package.json` | Versiones de tipos/TS corregidas |
-| `apps/api/package.json`, `apps/worker/package.json` | AWS SDK fijado a `3.1166.0`, `@nestjs/bullmq`, `ffprobe-static` fuera |
-| `package.json` (raíz) | Scripts nuevos |
-| `docker-compose.yml` | Contextos raíz, args del web, init + persistencia de LocalStack |
-| `.env` | `NEXT_PUBLIC_API_URL`, documentación de `API_KEY` |
-| `prisma/schema.prisma` | Schema único canónico + `sourceUrl` / `originalKey` en `Video` |
+| Archivo                                             | Cambio                                                                                                                                                                                                                                   |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/worker/src/worker.ts`                         | Todos los arreglos de video (checksum, ebur128, crop, tmpdir, FAILED, MAX_CLIPS, limpieza, pix_fmt, fases) + heurística multimodal (audio/habla/acción) + `downloadSource()` con `yt-dlp` + guardado del video completo (`keepOriginal`) |
+| `apps/worker/Dockerfile`                            | `ffmpeg` + `curl`/`ca-certificates` + `python3` + binario `yt-dlp`                                                                                                                                                                       |
+| `apps/api/src/app.module.ts`                        | `@nestjs/bullmq` + `parseRedisUrl` + `S3Module`                                                                                                                                                                                          |
+| `apps/api/src/video/video.module.ts`                | `@nestjs/bullmq` + `S3Module`                                                                                                                                                                                                            |
+| `apps/api/src/video/video.service.ts`               | `InjectQueue` de `@nestjs/bullmq` + `S3Client` + `remove()` (borrado, incluye el original) + `getDownloadUrl()` (URL prefirmada del video completo)                                                                                      |
+| `apps/api/src/video/video.controller.ts`            | Endpoints `DELETE /videos/:id` y `GET /videos/:id/download`                                                                                                                                                                              |
+| `apps/api/src/video/dto/create-video.dto.ts`        | `sourceUrl?` y `keepOriginal?`                                                                                                                                                                                                           |
+| `apps/api/src/video/video.gateway.ts`               | `OnGatewayConnection` + validación de API key                                                                                                                                                                                            |
+| `apps/api/src/main.ts`                              | `useGlobalGuards(new ApiKeyGuard())`                                                                                                                                                                                                     |
+| `apps/api/src/redis.service.ts`                     | URL directa a ioredis                                                                                                                                                                                                                    |
+| `apps/api/src/upload/upload.module.ts`              | `S3Module`                                                                                                                                                                                                                               |
+| `apps/api/src/upload/upload.service.ts`             | `S3_CLIENT` + `onModuleInit` (bucket) + host en presign                                                                                                                                                                                  |
+| `apps/web/app/page.tsx`                             | `useCallback`, API key, duración, fase, FAILED, stats, toast, modal, eliminar, procesar desde enlace, checkbox "Guardar el video completo" y botón "Descargar video completo"                                                            |
+| `apps/web/app/layout.tsx`                           | Header/footer modernos                                                                                                                                                                                                                   |
+| `apps/web/app/globals.css`                          | Aurora, scrollbar, animaciones                                                                                                                                                                                                           |
+| `apps/web/package.json`                             | Versiones de tipos/TS corregidas                                                                                                                                                                                                         |
+| `apps/api/package.json`, `apps/worker/package.json` | AWS SDK fijado a `3.1166.0`, `@nestjs/bullmq`, `ffprobe-static` fuera                                                                                                                                                                    |
+| `package.json` (raíz)                               | Scripts nuevos                                                                                                                                                                                                                           |
+| `docker-compose.yml`                                | Contextos raíz, args del web, init + persistencia de LocalStack                                                                                                                                                                          |
+| `.env`                                              | `NEXT_PUBLIC_API_URL`, documentación de `API_KEY`                                                                                                                                                                                        |
+| `prisma/schema.prisma`                              | Schema único canónico + `sourceUrl` / `originalKey` en `Video`                                                                                                                                                                           |
 
 ### Eliminados
 
-| Ruta | Motivo |
-|---|---|
-| `apps/api/prisma/` | Schema duplicado (se consolidó en la raíz) |
-| `apps/worker/prisma/` | Schema duplicado |
-| `apps/web/yarn.lock` | Lockfile obsoleto; el proyecto usa npm |
-| `apps/web/tsconfig.tsbuildinfo` | Artefacto de compilación |
+| Ruta                            | Motivo                                     |
+| ------------------------------- | ------------------------------------------ |
+| `apps/api/prisma/`              | Schema duplicado (se consolidó en la raíz) |
+| `apps/worker/prisma/`           | Schema duplicado                           |
+| `apps/web/yarn.lock`            | Lockfile obsoleto; el proyecto usa npm     |
+| `apps/web/tsconfig.tsbuildinfo` | Artefacto de compilación                   |
 
 ---
 
@@ -433,9 +439,11 @@ Archivo principal: `apps/worker/src/worker.ts`.
    ("clips virales", "Eliminar video") → desplegada y respondiendo HTTP 200.
 3. **Worker con fixes:** se generó un video de prueba (40s, cortes en 10/20/30 s,
    audio con volúmenes variables) → el análisis devolvió:
+
    ```
    [Worker] cc65feb5-...: 2 highlights -> 10s(score 65), 25s(score 63)
    ```
+
    y creó clips `VERTICAL`/`HORIZONTAL` en [10, 25] (score 65) y [25, 40] (score 63).
    → **El audio (`ebur128`) ya se está puntuando correctamente**.
 4. **Alerta**: hubo que usar `docker compose build --no-cache` + `docker compose up -d --force-recreate`
@@ -443,9 +451,11 @@ Archivo principal: `apps/worker/src/worker.ts`.
    el contenedor no se reemplaza aunque el build tenga éxito.
 5. **Señal de habla:** se añadió el componente de habla al score (audio 50 % + habla
    30 % + acción 20 %). Con el mismo video de prueba:
+
    ```
    [Worker] fb5f4513-...: 2 highlights -> 10s(score 79), 25s(score 77)
    ```
+
    clips con scores 79 y 77. El pipeline multimodal quedó verificado.
 
 ### 6.2 Verificación de la última sesión — enlaces (YouTube/TikTok) + video completo
@@ -473,8 +483,8 @@ Archivo principal: `apps/worker/src/worker.ts`.
    contiene `keepOriginal` y "Descargar video completo" ✅
 7. **Reinicio del entorno**: Docker Desktop se apagó y todos los contenedores
    quedaron `Exited (255)`. Se recuperó con `Start-Process "...\Docker Desktop.exe"`
-   + `docker compose up -d`. Los volúmenes (PostgreSQL, LocalStack) conservaron
-   los datos.
+   - `docker compose up -d`. Los volúmenes (PostgreSQL, LocalStack) conservaron
+     los datos.
 
 ---
 
@@ -574,4 +584,3 @@ Archivo principal: `apps/worker/src/worker.ts`.
   `GET /videos/:id/download` (URL prefirmada de 15 min).
 
 ---
-

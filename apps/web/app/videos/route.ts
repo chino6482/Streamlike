@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  mockStore,
-  startRealVideoProcessing,
-  MockVideo,
-  LayoutMode,
-} from '@/lib/mock-store';
-import { assertPublicUrl, sanitizeStorageKey, UnsafeUrlError } from '@/lib/ssrf-guard';
 import { sanitizeGeminiKey } from '@/lib/api-headers';
+import { LayoutMode, MockVideo, mockStore, startRealVideoProcessing } from '@/lib/mock-store';
+import { assertPublicUrl, sanitizeStorageKey, UnsafeUrlError } from '@/lib/ssrf-guard';
 
 const VALID_LAYOUTS = new Set<LayoutMode>([
   'AUTO',
@@ -85,20 +80,13 @@ export async function POST(req: NextRequest) {
 
     const keepOriginal = body.keepOriginal === true || !validatedSourceUrl;
     const rawClipDuration = Number(body.clipDuration);
-    const clipDuration = [15, 30, 45, 60].includes(rawClipDuration)
-      ? rawClipDuration
-      : 15;
-    const layoutMode: LayoutMode = VALID_LAYOUTS.has(body.layoutMode)
-      ? body.layoutMode
-      : 'AUTO';
+    const clipDuration = [15, 30, 45, 60].includes(rawClipDuration) ? rawClipDuration : 15;
+    const layoutMode: LayoutMode = VALID_LAYOUTS.has(body.layoutMode) ? body.layoutMode : 'AUTO';
 
     let cookiesText: string | undefined;
     if (body.youtubeCookies !== undefined && body.youtubeCookies !== null) {
       if (typeof body.youtubeCookies !== 'string') {
-        return NextResponse.json(
-          { message: 'Formato de cookies inválido' },
-          { status: 400 },
-        );
+        return NextResponse.json({ message: 'Formato de cookies inválido' }, { status: 400 });
       }
       const trimmedCookies = body.youtubeCookies.replace(/\0/g, '').trim();
       if (Buffer.byteLength(trimmedCookies, 'utf8') > 256 * 1024) {
@@ -153,9 +141,6 @@ export async function POST(req: NextRequest) {
     if (err instanceof UnsafeUrlError) {
       return NextResponse.json({ message: err.message }, { status: 400 });
     }
-    return NextResponse.json(
-      { message: 'Invalid video payload' },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: 'Invalid video payload' }, { status: 400 });
   }
 }

@@ -1,6 +1,6 @@
-import { Controller, Post, Body } from '@nestjs/common';
-import { UploadService } from './upload.service';
+import { Body, Controller, Post } from '@nestjs/common';
 import { PresignDto } from './dto/presign.dto';
+import { UploadService } from './upload.service';
 
 @Controller('upload')
 export class UploadController {

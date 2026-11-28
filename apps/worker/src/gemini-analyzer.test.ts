@@ -1,10 +1,6 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  normalizeViralMoments,
-  resolveGeminiApiKey,
-  MAX_VIRAL_MOMENTS,
-} from './gemini-analyzer';
+import test from 'node:test';
+import { MAX_VIRAL_MOMENTS, normalizeViralMoments, resolveGeminiApiKey } from './gemini-analyzer';
 
 test('resolveGeminiApiKey prioritizes explicit override over env and rejects placeholders', () => {
   const prev = process.env.GEMINI_API_KEY;

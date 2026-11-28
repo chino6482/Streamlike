@@ -12,8 +12,7 @@ export function resolveS3ClientConfig(
 ): S3ClientConfig {
   const endpoint = env.S3_ENDPOINT?.trim() || undefined;
   const region = env.AWS_REGION?.trim() || 'auto';
-  const forcePathStyle =
-    env.S3_FORCE_PATH_STYLE?.trim().toLowerCase() === 'false' ? false : true;
+  const forcePathStyle = env.S3_FORCE_PATH_STYLE?.trim().toLowerCase() !== 'false';
 
   return {
     region,

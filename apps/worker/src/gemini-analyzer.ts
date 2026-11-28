@@ -1,6 +1,6 @@
-import { GoogleGenAI, Type, createPartFromUri } from '@google/genai';
-import ffmpeg from 'fluent-ffmpeg';
+import { createPartFromUri, GoogleGenAI, Type } from '@google/genai';
 import * as crypto from 'crypto';
+import ffmpeg from 'fluent-ffmpeg';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -102,12 +102,10 @@ export function normalizeViralMoments(
     const rawTitle = typeof record.title === 'string' ? record.title.trim() : '';
     const title = (rawTitle || `Momento viral #${idx + 1}`).slice(0, 120);
 
-    const rawReason =
-      typeof record.hookReason === 'string' ? record.hookReason.trim() : '';
+    const rawReason = typeof record.hookReason === 'string' ? record.hookReason.trim() : '';
     const hookReason = rawReason.slice(0, 500);
 
-    const rawTranscript =
-      typeof record.transcript === 'string' ? record.transcript.trim() : '';
+    const rawTranscript = typeof record.transcript === 'string' ? record.transcript.trim() : '';
     const transcript = rawTranscript.slice(0, 4000);
 
     normalized.push({
@@ -147,10 +145,7 @@ export function normalizeViralMoments(
  * Extrae una pista de audio ligera (.mp3 mono a 16kHz / 32kbps) para subirla
  * rápidamente a la File API de Gemini consumiendo el mínimo de tokens.
  */
-export function extractLightAudioTrack(
-  videoPath: string,
-  outAudioPath: string,
-): Promise<void> {
+export function extractLightAudioTrack(videoPath: string, outAudioPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     ffmpeg(videoPath)
       .noVideo()
@@ -191,10 +186,7 @@ export async function analyzeVideoWithGemini(
     },
   });
 
-  const tmpAudioPath = path.join(
-    os.tmpdir(),
-    `streamlike-gemini-${crypto.randomUUID()}.mp3`,
-  );
+  const tmpAudioPath = path.join(os.tmpdir(), `streamlike-gemini-${crypto.randomUUID()}.mp3`);
   let uploadedFileName: string | null = null;
 
   try {
@@ -220,9 +212,7 @@ export async function analyzeVideoWithGemini(
     }
 
     if (uploadedFile.state === 'FAILED') {
-      throw new Error(
-        uploadedFile.error?.message || 'Gemini File API falló al procesar el audio.',
-      );
+      throw new Error(uploadedFile.error?.message || 'Gemini File API falló al procesar el audio.');
     }
 
     if (!uploadedFile.uri) {
@@ -247,10 +237,7 @@ export async function analyzeVideoWithGemini(
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: [
-        createPartFromUri(
-          uploadedFile.uri,
-          uploadedFile.mimeType || 'audio/mpeg',
-        ),
+        createPartFromUri(uploadedFile.uri, uploadedFile.mimeType || 'audio/mpeg'),
         prompt,
       ],
       config: {
@@ -266,7 +253,8 @@ export async function analyzeVideoWithGemini(
               },
               endTime: {
                 type: Type.NUMBER,
-                description: 'Fin del clip en segundos (20 a 55s después de startTime, con cierre natural).',
+                description:
+                  'Fin del clip en segundos (20 a 55s después de startTime, con cierre natural).',
               },
               title: {
                 type: Type.STRING,
@@ -285,14 +273,7 @@ export async function analyzeVideoWithGemini(
                 description: 'Transcripción exacta de ese fragmento.',
               },
             },
-            required: [
-              'startTime',
-              'endTime',
-              'title',
-              'viralScore',
-              'hookReason',
-              'transcript',
-            ],
+            required: ['startTime', 'endTime', 'title', 'viralScore', 'hookReason', 'transcript'],
           },
         },
       },
@@ -308,7 +289,10 @@ export async function analyzeVideoWithGemini(
   } finally {
     if (uploadedFileName) {
       await ai.files.delete({ name: uploadedFileName }).catch((delErr) => {
-        console.warn('[GeminiAnalyzer] No se pudo borrar archivo temporal de File API:', delErr?.message || delErr);
+        console.warn(
+          '[GeminiAnalyzer] No se pudo borrar archivo temporal de File API:',
+          delErr?.message || delErr,
+        );
       });
     }
     if (fs.existsSync(tmpAudioPath)) {

@@ -9,9 +9,7 @@ export class UnsafeUrlError extends Error {
 }
 
 function ipv4ToInt(ip: string): number {
-  return ip
-    .split('.')
-    .reduce((acc, oct) => ((acc << 8) | (parseInt(oct, 10) & 0xff)) >>> 0, 0);
+  return ip.split('.').reduce((acc, oct) => ((acc << 8) | (parseInt(oct, 10) & 0xff)) >>> 0, 0);
 }
 
 function isPublicIpv4(ip: string): boolean {
@@ -54,7 +52,12 @@ export function isPublicIp(rawIp: string): boolean {
       if (net.isIP(embedded) === 4) return isPublicIpv4(embedded);
     }
     if (ip.startsWith('fc') || ip.startsWith('fd')) return false;
-    if (ip.startsWith('fe8') || ip.startsWith('fe9') || ip.startsWith('fea') || ip.startsWith('feb')) {
+    if (
+      ip.startsWith('fe8') ||
+      ip.startsWith('fe9') ||
+      ip.startsWith('fea') ||
+      ip.startsWith('feb')
+    ) {
       return false;
     }
     if (ip.startsWith('ff')) return false;
@@ -79,7 +82,12 @@ export async function assertPublicUrl(rawUrl: string): Promise<string> {
   }
 
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (!hostname || hostname === 'localhost' || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
+  if (
+    !hostname ||
+    hostname === 'localhost' ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal')
+  ) {
     throw new UnsafeUrlError('Host interno o loopback bloqueado');
   }
 

@@ -1,5 +1,5 @@
-import { Global, Module } from '@nestjs/common';
 import { S3Client } from '@aws-sdk/client-s3';
+import { Global, Module } from '@nestjs/common';
 import { resolveS3ClientConfig } from './s3.config';
 
 /** Token de inyección del cliente S3 compartido. */

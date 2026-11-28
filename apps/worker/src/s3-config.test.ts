@@ -1,6 +1,6 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveWorkerS3Config, buildPublicObjectUrl } from './s3-config';
+import test from 'node:test';
+import { buildPublicObjectUrl, resolveWorkerS3Config } from './s3-config';
 
 test('resolveWorkerS3Config defaults to region=auto and forcePathStyle=true for R2/Supabase/LocalStack compatibility', () => {
   const defaultCfg = resolveWorkerS3Config({});

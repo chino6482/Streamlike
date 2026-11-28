@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import {
-  KeyRound,
+  Check,
   ChevronDown,
   ExternalLink,
   Eye,
   EyeOff,
-  Check,
-  Trash2,
   Info,
+  KeyRound,
+  Trash2,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface ApiKeysSettingsProps {
   savedKey: string;
@@ -18,11 +18,7 @@ interface ApiKeysSettingsProps {
   onNotify?: (toast: { type: 'success' | 'error'; message: string }) => void;
 }
 
-export function ApiKeysSettings({
-  savedKey,
-  onSaveKey,
-  onNotify,
-}: ApiKeysSettingsProps) {
+export function ApiKeysSettings({ savedKey, onSaveKey, onNotify }: ApiKeysSettingsProps) {
   const [open, setOpen] = useState(false);
   const [draftKey, setDraftKey] = useState(savedKey);
   const [showKey, setShowKey] = useState(false);
@@ -76,9 +72,7 @@ export function ApiKeysSettings({
       >
         <div className="flex flex-wrap items-center gap-2.5">
           <KeyRound className="h-4 w-4 text-indigo-400" />
-          <span className="text-sm font-bold text-slate-200">
-            Configuración de API Keys
-          </span>
+          <span className="text-sm font-bold text-slate-200">Configuración de API Keys</span>
           {savedKey ? (
             <span className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
               Gemini Key guardada en navegador
@@ -100,10 +94,9 @@ export function ApiKeysSettings({
         <div className="mx-6 mb-4 flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-3.5 py-2.5 text-xs text-amber-200/90 sm:mx-8">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
           <span>
-            No hay una <span className="font-semibold">Gemini API Key</span> guardada en
-            este navegador. Las peticiones usarán la variable de entorno del servidor como
-            respaldo, o el <span className="font-semibold">modo heurístico</span> si
-            tampoco existe en el servidor.
+            No hay una <span className="font-semibold">Gemini API Key</span> guardada en este
+            navegador. Las peticiones usarán la variable de entorno del servidor como respaldo, o el{' '}
+            <span className="font-semibold">modo heurístico</span> si tampoco existe en el servidor.
           </span>
         </div>
       )}
@@ -116,11 +109,11 @@ export function ApiKeysSettings({
         >
           <p className="text-xs leading-relaxed text-slate-400">
             Introduce tu propia <span className="font-semibold text-slate-200">Gemini API Key</span>{' '}
-            para analizar clips y generar títulos, hooks y copy viral. Por privacidad, la clave
-            se guarda exclusivamente en <span className="font-mono text-slate-300">localStorage</span>{' '}
+            para analizar clips y generar títulos, hooks y copy viral. Por privacidad, la clave se
+            guarda exclusivamente en <span className="font-mono text-slate-300">localStorage</span>{' '}
             dentro de tu navegador y se envía en la cabecera{' '}
-            <span className="font-mono text-slate-300">x-gemini-key</span> en lugar de depender
-            de las claves globales del servidor. Puedes obtener una clave gratuita en{' '}
+            <span className="font-mono text-slate-300">x-gemini-key</span> en lugar de depender de
+            las claves globales del servidor. Puedes obtener una clave gratuita en{' '}
             <a
               href="https://aistudio.google.com/"
               target="_blank"

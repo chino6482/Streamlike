@@ -69,14 +69,8 @@ export function escapeFfmpegFilterPath(filePath: string): string {
  * Divide una transcripción en bloques cortos de 3 a 4 palabras,
  * evitando bloques huérfanos de 1 palabra cuando hay suficientes palabras.
  */
-export function splitTranscriptIntoBlocks(
-  transcript: string,
-  targetSize = 4,
-): string[] {
-  const words = transcript
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+export function splitTranscriptIntoBlocks(transcript: string, targetSize = 4): string[] {
+  const words = transcript.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
 
   const blockSize = Math.max(3, Math.min(4, Math.round(targetSize)));
@@ -112,8 +106,7 @@ export function buildSubtitleCues(options: AssSubtitleOptions): SubtitleCue[] {
     const inside = options.wordTimestamps
       .map((w) => {
         // Detectar si vienen en tiempo absoluto del video o ya relativos al clip
-        const isAbsolute =
-          options.startTime > 0 && w.start >= options.startTime - 0.5;
+        const isAbsolute = options.startTime > 0 && w.start >= options.startTime - 0.5;
         const relStart = isAbsolute ? w.start - options.startTime : w.start;
         const relEnd = isAbsolute ? w.end - options.startTime : w.end;
         return {
@@ -148,9 +141,7 @@ export function buildSubtitleCues(options: AssSubtitleOptions): SubtitleCue[] {
   const blocks = splitTranscriptIntoBlocks(transcript, options.wordsPerBlock ?? 4);
   if (blocks.length === 0) return [];
 
-  const weights = blocks.map((block) =>
-    Math.max(4, block.replace(/\s+/g, '').length),
-  );
+  const weights = blocks.map((block) => Math.max(4, block.replace(/\s+/g, '').length));
   const totalWeight = weights.reduce((acc, w) => acc + w, 0) || 1;
 
   const cues: SubtitleCue[] = [];

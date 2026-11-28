@@ -12,7 +12,7 @@ listos para publicar.
 
 - **Análisis multimodal con Gemini 3 + modo BYOK**:
   - Extrae una pista de audio ligera (`.mp3` mono 16 kHz) y analiza el contenido con
-    `gemini-3-flash-preview` usando *Structured Outputs* para obtener clips de
+    `gemini-3-flash-preview` usando _Structured Outputs_ para obtener clips de
     20–55s con `title`, `viralScore` (1–100), `hookReason` y `transcript`.
   - **Modo BYOK (Bring Your Own Key)**: cada usuario puede configurar su propia
     `Gemini API Key` en **Configuración de API Keys** (persistida solo en el
@@ -32,6 +32,10 @@ listos para publicar.
 - **Almacenamiento S3 universal**: compatible con **LocalStack**, **Cloudflare R2**
   y **Supabase Storage** sin cambios en el código (`forcePathStyle: true` y
   `AWS_REGION=auto`).
+- **Grabador de Video en Vivo (Live Stream) y Auto-Clipper**:
+  - Soporta **1 transmisión en vivo activa a la vez** desde **YouTube Live, Twitch, Kick o TikTok Live** con límite de captura configurable (5 a 120 minutos).
+  - Captura resiliente en segundo plano (MPEG-TS a MP4 con `yt-dlp` + `ffmpeg`), con progreso en tiempo real (`live:progress` vía Redis Pub/Sub y Socket.IO) y botón **"Detener y extraer clips ahora"** (`POST /videos/:id/stop-live`).
+  - Concurrencia protegida mediante exclusión mutua en PostgreSQL (`Serializable` / `409 Conflict`) y validación SSRF de enlaces.
 
 ---
 
@@ -73,19 +77,19 @@ La API ejecuta `prisma migrate deploy` automáticamente al arrancar.
 
 ## ⚙️ Variables de entorno
 
-| Variable | Ejemplo / Por defecto | Descripción |
-|---|---|---|
-| `DATABASE_URL` | `postgresql://streamlike:secret@postgres:5432/streamlike` | Conexión a PostgreSQL |
-| `REDIS_URL` | `redis://redis:6379` | Cola BullMQ |
-| `AWS_REGION` | `auto` | Región S3 (`auto` requerido para Cloudflare R2; válido en LocalStack/Supabase) |
-| `S3_ENDPOINT` | `http://localstack:4566` | Endpoint S3 interno (LocalStack, R2 o Supabase S3) |
-| `S3_PUBLIC_ENDPOINT` | `http://localhost:4566` | Dominio público para servir los clips (`r2.dev`, Supabase public URL o LocalStack) |
-| `S3_FORCE_PATH_STYLE` | `true` | Mantiene URLs path-style (`true` por defecto para LocalStack, R2 y Supabase) |
-| `S3_BUCKET` | `streamlike-bucket` | Bucket de clips y videos originales |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | `test` | Credenciales del proveedor S3 |
-| `GEMINI_API_KEY` | *(vacío / opcional)* | Clave de respaldo en servidor si el cliente no envía `x-gemini-key` (BYOK) |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:3000` | URL de la API para el navegador (**build-time**) |
-| `API_KEY` / `NEXT_PUBLIC_API_KEY` | *(desactivado)* | Cabecera opcional `x-api-key` |
+| Variable                                      | Ejemplo / Por defecto                                     | Descripción                                                                        |
+| --------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                | `postgresql://streamlike:secret@postgres:5432/streamlike` | Conexión a PostgreSQL                                                              |
+| `REDIS_URL`                                   | `redis://redis:6379`                                      | Cola BullMQ                                                                        |
+| `AWS_REGION`                                  | `auto`                                                    | Región S3 (`auto` requerido para Cloudflare R2; válido en LocalStack/Supabase)     |
+| `S3_ENDPOINT`                                 | `http://localstack:4566`                                  | Endpoint S3 interno (LocalStack, R2 o Supabase S3)                                 |
+| `S3_PUBLIC_ENDPOINT`                          | `http://localhost:4566`                                   | Dominio público para servir los clips (`r2.dev`, Supabase public URL o LocalStack) |
+| `S3_FORCE_PATH_STYLE`                         | `true`                                                    | Mantiene URLs path-style (`true` por defecto para LocalStack, R2 y Supabase)       |
+| `S3_BUCKET`                                   | `streamlike-bucket`                                       | Bucket de clips y videos originales                                                |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | `test`                                                    | Credenciales del proveedor S3                                                      |
+| `GEMINI_API_KEY`                              | _(vacío / opcional)_                                      | Clave de respaldo en servidor si el cliente no envía `x-gemini-key` (BYOK)         |
+| `NEXT_PUBLIC_API_URL`                         | `http://localhost:3000`                                   | URL de la API para el navegador (**build-time**)                                   |
+| `API_KEY` / `NEXT_PUBLIC_API_KEY`             | _(desactivado)_                                           | Cabecera opcional `x-api-key`                                                      |
 
 ---
 

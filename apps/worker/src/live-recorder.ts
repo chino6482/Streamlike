@@ -1,9 +1,9 @@
-import { spawn, execFile, ChildProcess } from 'child_process';
+import { ChildProcess, execFile, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import Redis from 'ioredis';
 import * as os from 'os';
 import * as path from 'path';
-import Redis from 'ioredis';
 
 export const DEFAULT_LIVE_DURATION_MINUTES = 30;
 export const MIN_LIVE_DURATION_MINUTES = 5;
@@ -44,10 +44,7 @@ export function normalizeLiveDurationMinutes(raw?: number | null): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) {
     return DEFAULT_LIVE_DURATION_MINUTES;
   }
-  return Math.max(
-    MIN_LIVE_DURATION_MINUTES,
-    Math.min(MAX_LIVE_DURATION_MINUTES, Math.round(raw)),
-  );
+  return Math.max(MIN_LIVE_DURATION_MINUTES, Math.min(MAX_LIVE_DURATION_MINUTES, Math.round(raw)));
 }
 
 export function buildLiveStopChannel(videoId: string): string {
@@ -198,10 +195,7 @@ function resolveEphemeralCookies(cookiesText?: string): {
       throw new Error('Las cookies superan el límite permitido de 256 KB.');
     }
     if (cleaned) {
-      const tmpCookie = path.join(
-        os.tmpdir(),
-        `worker-live-cookies-${crypto.randomUUID()}.txt`,
-      );
+      const tmpCookie = path.join(os.tmpdir(), `worker-live-cookies-${crypto.randomUUID()}.txt`);
       fs.writeFileSync(tmpCookie, `${cleaned}\n`, { encoding: 'utf8', mode: 0o600 });
       return {
         cookiePath: tmpCookie,
@@ -224,11 +218,7 @@ function resolveEphemeralCookies(cookiesText?: string): {
   return { cookiePath: null, cleanup: () => {} };
 }
 
-function runExecFileAsync(
-  cmd: string,
-  args: string[],
-  timeoutMs = 120_000,
-): Promise<void> {
+function runExecFileAsync(cmd: string, args: string[], timeoutMs = 120_000): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(
       cmd,
@@ -265,15 +255,8 @@ function safeFileSize(filePath: string): number {
 export async function recordLiveStream(
   options: RecordLiveStreamOptions,
 ): Promise<RecordLiveStreamResult> {
-  const {
-    videoId,
-    sourceUrl,
-    maxDurationSeconds,
-    outMp4Path,
-    redisUrl,
-    cookiesText,
-    onProgress,
-  } = options;
+  const { videoId, sourceUrl, maxDurationSeconds, outMp4Path, redisUrl, cookiesText, onProgress } =
+    options;
 
   const outDir = path.dirname(outMp4Path);
   if (!fs.existsSync(outDir)) {
@@ -314,7 +297,7 @@ export async function recordLiveStream(
 
     try {
       if (ffmpegProc && !ffmpegProc.killed) {
-        if (ffmpegProc.stdin && ffmpegProc.stdin.writable) {
+        if (ffmpegProc.stdin?.writable) {
           ffmpegProc.stdin.write('q\n');
           ffmpegProc.stdin.end();
         }

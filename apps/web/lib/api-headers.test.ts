@@ -1,10 +1,6 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  GEMINI_STORAGE_KEY,
-  sanitizeGeminiKey,
-  buildApiHeaders,
-} from './api-headers';
+import test from 'node:test';
+import { buildApiHeaders, GEMINI_STORAGE_KEY, sanitizeGeminiKey } from './api-headers';
 
 test('GEMINI_STORAGE_KEY uses expected key name', () => {
   assert.equal(GEMINI_STORAGE_KEY, 'GEMINI_API_KEY');

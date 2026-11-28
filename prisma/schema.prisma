@@ -36,6 +36,10 @@ model Video {
   clips     Clip[]
   jobs      JobQueue[]
   createdAt DateTime    @default(now())
+
+  @@index([status])
+  @@index([isLiveCapture, liveStatus])
+  @@index([createdAt])
 }
 
 enum VideoStatus {

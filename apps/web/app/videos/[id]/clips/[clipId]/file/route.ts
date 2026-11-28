@@ -22,9 +22,7 @@ export async function GET(
   const stat = fs.statSync(filePath);
   const total = stat.size;
   const download = req.nextUrl.searchParams.get('download') === '1';
-  const safeBase = (clip.title || video.title || 'clip')
-    .replace(/[^\w.\-]+/g, '_')
-    .slice(0, 60);
+  const safeBase = (clip.title || video.title || 'clip').replace(/[^\w.-]+/g, '_').slice(0, 60);
   const filename = `${safeBase}-${clip.format.toLowerCase()}.mp4`;
 
   const range = req.headers.get('range');

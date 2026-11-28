@@ -1,50 +1,40 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { ComponentType } from 'react';
-import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
-import { io } from 'socket.io-client';
 import {
-  Upload,
-  Film,
-  CheckCircle2,
-  Clock,
   AlertCircle,
-  Play,
-  Sparkles,
-  Trash2,
-  X,
-  Loader2,
-  Wand2,
-  Scissors,
   AlertTriangle,
-  TrendingUp,
-  Download,
-  Copy,
   Check,
-  SlidersHorizontal,
-  Type,
-  LayoutTemplate,
-  Info,
+  CheckCircle2,
   ChevronDown,
-  ShieldCheck,
+  Clock,
+  Copy,
+  Download,
+  Film,
+  Info,
+  LayoutTemplate,
+  Loader2,
   Radio,
+  Scissors,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
   Square,
+  Trash2,
+  TrendingUp,
+  Type,
+  Upload,
+  Wand2,
+  X,
 } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { io } from 'socket.io-client';
 import { ApiKeysSettings } from '@/components/ApiKeysSettings';
-import {
-  buildApiHeaders,
-  readStoredGeminiKey,
-  writeStoredGeminiKey,
-} from '@/lib/api-headers';
+import { buildApiHeaders, readStoredGeminiKey, writeStoredGeminiKey } from '@/lib/api-headers';
 
-type LayoutMode =
-  | 'AUTO'
-  | 'VERTICAL_CROP'
-  | 'BLUR_FILL'
-  | 'SPLIT'
-  | 'SCREENCAST';
+type LayoutMode = 'AUTO' | 'VERTICAL_CROP' | 'BLUR_FILL' | 'SPLIT' | 'SCREENCAST';
 type HookStyle = 'pill' | 'banner' | 'minimal';
 type HookPosition = 'top' | 'center' | 'bottom';
 
@@ -193,10 +183,7 @@ export default function Dashboard() {
     setGeminiApiKey(persisted);
   }, []);
 
-  const videoList = useMemo(
-    () => (Array.isArray(videos) ? videos : []),
-    [videos],
-  );
+  const videoList = useMemo(() => (Array.isArray(videos) ? videos : []), [videos]);
 
   const selectedVideo = useMemo(
     () => videoList.find((v) => v.id === selectedId) || null,
@@ -210,19 +197,14 @@ export default function Dashboard() {
   }, [selectedVideo, formatFilter]);
 
   const hasActiveLive = useMemo(
-    () =>
-      videoList.some(
-        (v) => v.isLiveCapture && v.liveStatus === 'RECORDING',
-      ),
+    () => videoList.some((v) => v.isLiveCapture && v.liveStatus === 'RECORDING'),
     [videoList],
   );
 
   const stats = useMemo(
     () => ({
       total: videoList.length,
-      pending: videoList.filter(
-        (v) => v.status === 'PENDING' || v.status === 'PROCESSING',
-      ).length,
+      pending: videoList.filter((v) => v.status === 'PENDING' || v.status === 'PROCESSING').length,
       completed: videoList.filter((v) => v.status === 'COMPLETED').length,
       clips: videoList.reduce((n, v) => n + (v.clips?.length || 0), 0),
     }),
@@ -269,9 +251,7 @@ export default function Dashboard() {
                 ...v,
                 status: payload.status ?? v.status,
                 phase: payload.phase ?? v.phase,
-                ...(payload.liveStatus !== undefined
-                  ? { liveStatus: payload.liveStatus }
-                  : {}),
+                ...(payload.liveStatus !== undefined ? { liveStatus: payload.liveStatus } : {}),
               }
             : v,
         ),
@@ -296,9 +276,7 @@ export default function Dashboard() {
                   typeof payload.fileSizeBytes === 'number'
                     ? payload.fileSizeBytes
                     : v.liveFileSizeBytes,
-                ...(payload.liveStatus !== undefined
-                  ? { liveStatus: payload.liveStatus }
-                  : {}),
+                ...(payload.liveStatus !== undefined ? { liveStatus: payload.liveStatus } : {}),
               }
             : v,
         ),
@@ -330,15 +308,9 @@ export default function Dashboard() {
   const formatLiveElapsed = useCallback(
     (video: Video): string => {
       const elapsedSec =
-        typeof video.liveRecordedSeconds === 'number' &&
-        video.liveRecordedSeconds > 0
+        typeof video.liveRecordedSeconds === 'number' && video.liveRecordedSeconds > 0
           ? video.liveRecordedSeconds
-          : Math.max(
-              0,
-              Math.floor(
-                (liveNowMs - new Date(video.createdAt).getTime()) / 1000,
-              ),
-            );
+          : Math.max(0, Math.floor((liveNowMs - new Date(video.createdAt).getTime()) / 1000));
       const mins = Math.floor(elapsedSec / 60);
       const secs = elapsedSec % 60;
       return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -372,9 +344,7 @@ export default function Dashboard() {
           headers: { 'Content-Type': file.type || 'video/mp4' },
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
-              const percent = Math.round(
-                (progressEvent.loaded * 100) / progressEvent.total,
-              );
+              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
               setUploadProgress(percent);
             }
           },
@@ -412,7 +382,15 @@ export default function Dashboard() {
         setUploadProgress(0);
       }
     },
-    [fetchVideos, keepOriginal, clipDuration, layoutMode, autoReframe, topicHint, getRequestHeaders],
+    [
+      fetchVideos,
+      keepOriginal,
+      clipDuration,
+      layoutMode,
+      autoReframe,
+      topicHint,
+      getRequestHeaders,
+    ],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -421,9 +399,7 @@ export default function Dashboard() {
     setDeleting(true);
     try {
       await axios.delete(`${API_BASE}/videos/${id}`, { headers: baseApiHeaders });
-      setVideos((prev) =>
-        (Array.isArray(prev) ? prev : []).filter((v) => v.id !== id),
-      );
+      setVideos((prev) => (Array.isArray(prev) ? prev : []).filter((v) => v.id !== id));
       setSelectedId((cur) => (cur === id ? null : cur));
       setToast({ type: 'success', message: 'Video y clips eliminados' });
       setConfirmTarget(null);
@@ -451,7 +427,10 @@ export default function Dashboard() {
         return;
       }
     } catch {
-      setToast({ type: 'error', message: 'Formato de URL inválido. Ejemplo: https://www.tiktok.com/...' });
+      setToast({
+        type: 'error',
+        message: 'Formato de URL inválido. Ejemplo: https://www.tiktok.com/...',
+      });
       return;
     }
 
@@ -460,9 +439,7 @@ export default function Dashboard() {
       const res = await axios.post(
         `${API_BASE}/videos`,
         {
-          title: isLiveCapture
-            ? `live-${Date.now()}.mp4`
-            : `video-${Date.now()}.mp4`,
+          title: isLiveCapture ? `live-${Date.now()}.mp4` : `video-${Date.now()}.mp4`,
           s3Key: url,
           duration: 0,
           sourceUrl: url,
@@ -490,9 +467,7 @@ export default function Dashboard() {
       console.warn('No se pudo encolar el enlace:', err?.response?.data?.message || err?.message);
       setToast({
         type: 'error',
-        message:
-          err?.response?.data?.message ||
-          'No se pudo procesar el video desde el enlace',
+        message: err?.response?.data?.message || 'No se pudo procesar el video desde el enlace',
       });
     } finally {
       setProcessingFromLink(false);
@@ -522,9 +497,7 @@ export default function Dashboard() {
         );
         setVideos((prev) =>
           (Array.isArray(prev) ? prev : []).map((v) =>
-            v.id === video.id
-              ? { ...v, liveStatus: 'STOPPED', phase: 'ANALYZING' }
-              : v,
+            v.id === video.id ? { ...v, liveStatus: 'STOPPED', phase: 'ANALYZING' } : v,
           ),
         );
         setToast({
@@ -533,12 +506,13 @@ export default function Dashboard() {
         });
         await fetchVideos();
       } catch (err: any) {
-        console.warn('No se pudo detener la captura en vivo:', err?.response?.data?.message || err?.message);
+        console.warn(
+          'No se pudo detener la captura en vivo:',
+          err?.response?.data?.message || err?.message,
+        );
         setToast({
           type: 'error',
-          message:
-            err?.response?.data?.message ||
-            'No se pudo detener la captura en vivo',
+          message: err?.response?.data?.message || 'No se pudo detener la captura en vivo',
         });
       } finally {
         setStoppingLiveId((cur) => (cur === video.id ? null : cur));
@@ -562,12 +536,13 @@ export default function Dashboard() {
       document.body.removeChild(a);
       setToast({ type: 'success', message: 'Descarga del video completo iniciada' });
     } catch (err: any) {
-      console.warn('Error al descargar el video completo:', err?.response?.data?.message || err?.message);
+      console.warn(
+        'Error al descargar el video completo:',
+        err?.response?.data?.message || err?.message,
+      );
       setToast({
         type: 'error',
-        message:
-          err?.response?.data?.message ||
-          'No se pudo descargar el video completo',
+        message: err?.response?.data?.message || 'No se pudo descargar el video completo',
       });
     } finally {
       setDownloadingId(null);
@@ -578,40 +553,42 @@ export default function Dashboard() {
    * Genera títulos virales, hooks de apertura, explicación de retención y copy
    * social usando Gemini en el servidor (/api/ai/enhance-clips).
    */
-  const enhanceWithAi = useCallback(async (video: Video) => {
-    setEnhancingAi(true);
-    try {
-      const res = await axios.post(
-        '/api/ai/enhance-clips',
-        {
-          videoId: video.id,
-          topicHint: video.topicHint || topicHint.trim() || undefined,
-        },
-        { headers: getRequestHeaders() },
-      );
-      if (res.data && typeof res.data === 'object' && res.data.id) {
-        setVideos((prev) =>
-          (Array.isArray(prev) ? prev : []).map((v) =>
-            v.id === video.id ? res.data : v,
-          ),
+  const enhanceWithAi = useCallback(
+    async (video: Video) => {
+      setEnhancingAi(true);
+      try {
+        const res = await axios.post(
+          '/api/ai/enhance-clips',
+          {
+            videoId: video.id,
+            topicHint: video.topicHint || topicHint.trim() || undefined,
+          },
+          { headers: getRequestHeaders() },
         );
+        if (res.data && typeof res.data === 'object' && res.data.id) {
+          setVideos((prev) =>
+            (Array.isArray(prev) ? prev : []).map((v) => (v.id === video.id ? res.data : v)),
+          );
+        }
+        setToast({
+          type: 'success',
+          message: 'Hooks, títulos y copy viral generados con IA',
+        });
+      } catch (err: any) {
+        console.warn(
+          'Error al enriquecer clips con IA:',
+          err?.response?.data?.message || err?.message,
+        );
+        setToast({
+          type: 'error',
+          message: err?.response?.data?.message || 'Error al generar metadatos con IA.',
+        });
+      } finally {
+        setEnhancingAi(false);
       }
-      setToast({
-        type: 'success',
-        message: 'Hooks, títulos y copy viral generados con IA',
-      });
-    } catch (err: any) {
-      console.warn('Error al enriquecer clips con IA:', err?.response?.data?.message || err?.message);
-      setToast({
-        type: 'error',
-        message:
-          err?.response?.data?.message ||
-          'Error al generar metadatos con IA.',
-      });
-    } finally {
-      setEnhancingAi(false);
-    }
-  }, [topicHint, getRequestHeaders]);
+    },
+    [topicHint, getRequestHeaders],
+  );
 
   const saveClipEdits = useCallback(async () => {
     if (!selectedVideo || !editingClip) return;
@@ -632,15 +609,13 @@ export default function Dashboard() {
         { headers: baseApiHeaders },
       );
       const updatedClip: Clip = res.data;
-      if (updatedClip && updatedClip.id) {
+      if (updatedClip?.id) {
         setVideos((prev) =>
           (Array.isArray(prev) ? prev : []).map((v) =>
             v.id === selectedVideo.id
               ? {
                   ...v,
-                  clips: (v.clips || []).map((c) =>
-                    c.id === updatedClip.id ? updatedClip : c,
-                  ),
+                  clips: (v.clips || []).map((c) => (c.id === updatedClip.id ? updatedClip : c)),
                 }
               : v,
           ),
@@ -653,8 +628,7 @@ export default function Dashboard() {
       console.warn('Error al guardar clip:', err?.response?.data?.message || err?.message);
       setToast({
         type: 'error',
-        message:
-          err?.response?.data?.message || 'No se pudieron guardar los cambios',
+        message: err?.response?.data?.message || 'No se pudieron guardar los cambios',
       });
     } finally {
       setSavingClip(false);
@@ -684,36 +658,37 @@ export default function Dashboard() {
     }
   }, []);
 
-  const copySocialKit = useCallback(async (clip: Clip) => {
-    const text = [
-      clip.title,
-      clip.hookText ? `Hook: ${clip.hookText}` : '',
-      clip.caption,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-    try {
-      await writeClipboardWithFallback(text || `Clip ${clip.startTime}s-${clip.endTime}s`);
-      setCopiedClipId(clip.id);
-      setTimeout(() => setCopiedClipId((cur) => (cur === clip.id ? null : cur)), 2000);
-      setToast({ type: 'success', message: 'Título y copy copiados al portapapeles' });
-    } catch {
-      setToast({ type: 'error', message: 'No se pudo copiar al portapapeles' });
-    }
-  }, [writeClipboardWithFallback]);
+  const copySocialKit = useCallback(
+    async (clip: Clip) => {
+      const text = [clip.title, clip.hookText ? `Hook: ${clip.hookText}` : '', clip.caption]
+        .filter(Boolean)
+        .join('\n\n');
+      try {
+        await writeClipboardWithFallback(text || `Clip ${clip.startTime}s-${clip.endTime}s`);
+        setCopiedClipId(clip.id);
+        setTimeout(() => setCopiedClipId((cur) => (cur === clip.id ? null : cur)), 2000);
+        setToast({ type: 'success', message: 'Título y copy copiados al portapapeles' });
+      } catch {
+        setToast({ type: 'error', message: 'No se pudo copiar al portapapeles' });
+      }
+    },
+    [writeClipboardWithFallback],
+  );
 
-  const copyClipTitle = useCallback(async (clip: Clip) => {
-    const titleText =
-      clip.title?.trim() || `Clip ${clip.startTime}s – ${clip.endTime}s`;
-    try {
-      await writeClipboardWithFallback(titleText);
-      setCopiedTitleId(clip.id);
-      setTimeout(() => setCopiedTitleId((cur) => (cur === clip.id ? null : cur)), 2000);
-      setToast({ type: 'success', message: 'Título copiado al portapapeles' });
-    } catch {
-      setToast({ type: 'error', message: 'No se pudo copiar el título' });
-    }
-  }, [writeClipboardWithFallback]);
+  const copyClipTitle = useCallback(
+    async (clip: Clip) => {
+      const titleText = clip.title?.trim() || `Clip ${clip.startTime}s – ${clip.endTime}s`;
+      try {
+        await writeClipboardWithFallback(titleText);
+        setCopiedTitleId(clip.id);
+        setTimeout(() => setCopiedTitleId((cur) => (cur === clip.id ? null : cur)), 2000);
+        setToast({ type: 'success', message: 'Título copiado al portapapeles' });
+      } catch {
+        setToast({ type: 'error', message: 'No se pudo copiar el título' });
+      }
+    },
+    [writeClipboardWithFallback],
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -737,9 +712,9 @@ export default function Dashboard() {
           </span>
         </h1>
         <p className="mx-auto max-w-2xl text-sm text-slate-400 sm:text-base">
-          Detecta los momentos de mayor energía (audio, habla y acción), reencuadra
-          automáticamente en 9:16 (Smart Crop, Split o Blur Fill) y edita hooks de
-          apertura listos para TikTok, Reels y Shorts.
+          Detecta los momentos de mayor energía (audio, habla y acción), reencuadra automáticamente
+          en 9:16 (Smart Crop, Split o Blur Fill) y edita hooks de apertura listos para TikTok,
+          Reels y Shorts.
         </p>
 
         {/* Stats */}
@@ -833,16 +808,15 @@ export default function Dashboard() {
               <span>Auto-Reframe Facial (9:16)</span>
               <span
                 className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
-                  autoReframe
-                    ? 'bg-emerald-500/15 text-emerald-300'
-                    : 'bg-slate-800 text-slate-400'
+                  autoReframe ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-800 text-slate-400'
                 }`}
               >
                 {autoReframe ? 'Activo' : 'Desactivado'}
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Centra dinámicamente al hablante activo en 9:16; si no hay personas en escena, mantiene el encuadre seleccionado.
+              Centra dinámicamente al hablante activo en 9:16; si no hay personas en escena,
+              mantiene el encuadre seleccionado.
             </p>
           </div>
           <button
@@ -852,9 +826,7 @@ export default function Dashboard() {
             aria-label="Auto-Reframe Facial (9:16)"
             onClick={() => setAutoReframe((prev) => !prev)}
             className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition ${
-              autoReframe
-                ? 'border-indigo-500 bg-indigo-600'
-                : 'border-white/15 bg-slate-800'
+              autoReframe ? 'border-indigo-500 bg-indigo-600' : 'border-white/15 bg-slate-800'
             }`}
           >
             <span
@@ -900,9 +872,7 @@ export default function Dashboard() {
           ) : (
             <div>
               <p className="text-base font-semibold text-slate-200">
-                {isDragActive
-                  ? 'Suelta el archivo aquí...'
-                  : 'Arrastra y suelta un video aquí'}
+                {isDragActive ? 'Suelta el archivo aquí...' : 'Arrastra y suelta un video aquí'}
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 o haz clic para seleccionar · MP4, MOV, AVI, MKV hasta 500 MB
@@ -919,8 +889,8 @@ export default function Dashboard() {
           Procesar video desde enlace
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Pega un enlace público (YouTube, TikTok o un MP4 directo; validado contra
-          SSRF) y el pipeline generará los clips automáticamente.
+          Pega un enlace público (YouTube, TikTok o un MP4 directo; validado contra SSRF) y el
+          pipeline generará los clips automáticamente.
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <input
@@ -978,9 +948,7 @@ export default function Dashboard() {
               aria-label="Modo Transmisión en Vivo (Live)"
               onClick={() => setIsLiveCapture((prev) => !prev)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition ${
-                isLiveCapture
-                  ? 'border-rose-500 bg-rose-600'
-                  : 'border-white/15 bg-slate-800'
+                isLiveCapture ? 'border-rose-500 bg-rose-600' : 'border-white/15 bg-slate-800'
               }`}
             >
               <span
@@ -992,9 +960,7 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-3">
-            <label className="text-xs font-medium text-slate-400">
-              Duración máxima de captura
-            </label>
+            <label className="text-xs font-medium text-slate-400">Duración máxima de captura</label>
             <div className="grid grid-cols-4 gap-2">
               {[15, 30, 60, 120].map((mins) => (
                 <button
@@ -1008,8 +974,8 @@ export default function Dashboard() {
                     liveDurationMinutes === mins && isLiveCapture
                       ? 'border-rose-500 bg-rose-500/20 text-rose-200'
                       : liveDurationMinutes === mins
-                      ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-200'
-                      : 'border-white/10 bg-slate-900/60 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                        ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-200'
+                        : 'border-white/10 bg-slate-900/60 text-slate-400 hover:border-white/20 hover:text-slate-200'
                   }`}
                 >
                   {mins} min
@@ -1020,7 +986,8 @@ export default function Dashboard() {
 
           {hasActiveLive && isLiveCapture && (
             <p className="text-[11px] font-medium text-amber-300">
-              Ya hay una transmisión en vivo capturándose. Detén el directo activo antes de iniciar otro.
+              Ya hay una transmisión en vivo capturándose. Detén el directo activo antes de iniciar
+              otro.
             </p>
           )}
         </div>
@@ -1033,12 +1000,10 @@ export default function Dashboard() {
             className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 bg-slate-900 text-indigo-500 accent-indigo-500 focus:ring-indigo-500/40"
           />
           <span>
-            <span className="font-semibold text-slate-300">
-              Guardar el video completo
-            </span>
+            <span className="font-semibold text-slate-300">Guardar el video completo</span>
             <span className="mt-0.5 block">
-              Además de los clips, se conserva el video original en el servidor
-              para poder descargarlo completo.
+              Además de los clips, se conserva el video original en el servidor para poder
+              descargarlo completo.
             </span>
           </span>
         </label>
@@ -1060,9 +1025,7 @@ export default function Dashboard() {
               )}
             </span>
             <ChevronDown
-              className={`h-4 w-4 transition-transform ${
-                showAdvancedUrl ? 'rotate-180' : ''
-              }`}
+              className={`h-4 w-4 transition-transform ${showAdvancedUrl ? 'rotate-180' : ''}`}
             />
           </button>
 
@@ -1074,10 +1037,9 @@ export default function Dashboard() {
                   “Sign in to confirm you’re not a bot”
                 </span>{' '}
                 desde la IP del servidor, exporta tus cookies de{' '}
-                <span className="text-slate-300">youtube.com</span> en formato
-                Netscape (<span className="font-mono">cookies.txt</span>) y
-                pégalas o cárgalas aquí. Se usan solo para esta descarga y se
-                eliminan de inmediato.
+                <span className="text-slate-300">youtube.com</span> en formato Netscape (
+                <span className="font-mono">cookies.txt</span>) y pégalas o cárgalas aquí. Se usan
+                solo para esta descarga y se eliminan de inmediato.
               </p>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -1222,8 +1184,7 @@ export default function Dashboard() {
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2">
                     <span className="text-[11px] text-rose-200">
                       Límite {video.liveDurationMinutes || 30} min
-                      {typeof video.liveFileSizeBytes === 'number' &&
-                      video.liveFileSizeBytes > 0
+                      {typeof video.liveFileSizeBytes === 'number' && video.liveFileSizeBytes > 0
                         ? ` · ${(video.liveFileSizeBytes / (1024 * 1024)).toFixed(1)} MB`
                         : ''}
                     </span>
@@ -1271,9 +1232,7 @@ export default function Dashboard() {
         <section className="animate-fade-up space-y-6 rounded-3xl border border-white/5 bg-white/[0.02] p-6 backdrop-blur sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
             <div className="min-w-0">
-              <h2 className="truncate text-xl font-bold text-slate-100">
-                {selectedVideo.title}
-              </h2>
+              <h2 className="truncate text-xl font-bold text-slate-100">{selectedVideo.title}</h2>
               <p className="mt-1 truncate text-xs text-slate-500">
                 ID: {selectedVideo.id}
                 {selectedVideo.layoutMode && (
@@ -1284,8 +1243,7 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {selectedVideo.isLiveCapture &&
-              selectedVideo.liveStatus === 'RECORDING' ? (
+              {selectedVideo.isLiveCapture && selectedVideo.liveStatus === 'RECORDING' ? (
                 <>
                   <span className="inline-flex shrink-0 animate-pulse items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-0.5 text-xs font-bold text-rose-300">
                     <span className="h-2 w-2 rounded-full bg-rose-400" />
@@ -1431,24 +1389,23 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <p className="text-sm text-slate-400">
-                    {selectedVideo.isLiveCapture &&
-                    selectedVideo.liveStatus === 'RECORDING'
+                    {selectedVideo.isLiveCapture && selectedVideo.liveStatus === 'RECORDING'
                       ? `Grabando transmisión en vivo (${formatLiveElapsed(selectedVideo)})... Puedes detener la captura cuando quieras para analizar con Gemini y generar los clips.`
                       : selectedVideo.status === 'PROCESSING'
-                      ? selectedVideo.phase === 'LIVE_RECORDING'
-                        ? 'Capturando transmisión en vivo...'
-                        : selectedVideo.phase === 'DOWNLOADING'
-                        ? 'Descargando el video desde la URL de origen...'
-                        : selectedVideo.phase === 'DURATION'
-                        ? 'Midiendo la duración real del video con ffprobe...'
-                        : selectedVideo.phase === 'ANALYZING'
-                        ? 'Analizando momentos virales y sonoridad...'
-                        : selectedVideo.phase === 'CUTTING'
-                        ? 'Cortando y reencuadrando los clips MP4 con FFmpeg...'
-                        : 'Procesando video con FFmpeg...'
-                      : selectedVideo.status === 'PENDING'
-                      ? 'En cola de procesamiento...'
-                      : 'No se encontraron clips para este video.'}
+                        ? selectedVideo.phase === 'LIVE_RECORDING'
+                          ? 'Capturando transmisión en vivo...'
+                          : selectedVideo.phase === 'DOWNLOADING'
+                            ? 'Descargando el video desde la URL de origen...'
+                            : selectedVideo.phase === 'DURATION'
+                              ? 'Midiendo la duración real del video con ffprobe...'
+                              : selectedVideo.phase === 'ANALYZING'
+                                ? 'Analizando momentos virales y sonoridad...'
+                                : selectedVideo.phase === 'CUTTING'
+                                  ? 'Cortando y reencuadrando los clips MP4 con FFmpeg...'
+                                  : 'Procesando video con FFmpeg...'
+                        : selectedVideo.status === 'PENDING'
+                          ? 'En cola de procesamiento...'
+                          : 'No se encontraron clips para este video.'}
                   </p>
                 )}
               </div>
@@ -1477,8 +1434,8 @@ export default function Dashboard() {
                             scoreValue >= 85
                               ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
                               : scoreValue >= 65
-                              ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
-                              : 'border-slate-500/30 bg-slate-500/15 text-slate-300';
+                                ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
+                                : 'border-slate-500/30 bg-slate-500/15 text-slate-300';
                           return (
                             <span
                               title="Puntuación de viralidad IA"
@@ -1514,7 +1471,8 @@ export default function Dashboard() {
                           >
                             <Scissors className="h-6 w-6 text-indigo-400" />
                             <span className="text-xs text-slate-400">
-                              Segmento {formatDuration(clip.startTime)} – {formatDuration(clip.endTime)}
+                              Segmento {formatDuration(clip.startTime)} –{' '}
+                              {formatDuration(clip.endTime)}
                             </span>
                           </div>
                         )}
@@ -1589,9 +1547,7 @@ export default function Dashboard() {
                       )}
 
                       {clip.caption && (
-                        <p className="line-clamp-2 text-xs text-slate-400">
-                          {clip.caption}
-                        </p>
+                        <p className="line-clamp-2 text-xs text-slate-400">{clip.caption}</p>
                       )}
                     </div>
 
@@ -1631,7 +1587,7 @@ export default function Dashboard() {
                             ? `${clip.clipUrl}?download=1`
                             : clip.clipUrl
                         }
-                        download={`${(clip.title || 'clip').replace(/[^\w.\-]+/g, '_')}.mp4`}
+                        download={`${(clip.title || 'clip').replace(/[^\w.-]+/g, '_')}.mp4`}
                         className="inline-flex items-center justify-center gap-1 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 py-2 text-xs font-semibold text-white transition hover:from-indigo-500 hover:to-violet-500"
                       >
                         <Download className="h-3.5 w-3.5" />
@@ -1663,9 +1619,7 @@ export default function Dashboard() {
 
             <div className="mb-5 flex items-center gap-2">
               <LayoutTemplate className="h-5 w-5 text-indigo-400" />
-              <h3 className="text-lg font-bold text-slate-100">
-                Editor de Clip & Hook Studio
-              </h3>
+              <h3 className="text-lg font-bold text-slate-100">Editor de Clip & Hook Studio</h3>
             </div>
 
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -1703,9 +1657,7 @@ export default function Dashboard() {
                 {/* Controles de recorte temporal */}
                 <div className="grid grid-cols-2 gap-3 rounded-xl border border-white/5 bg-slate-950/60 p-3">
                   <div>
-                    <label className="block text-[11px] text-slate-400">
-                      Inicio (seg)
-                    </label>
+                    <label className="block text-[11px] text-slate-400">Inicio (seg)</label>
                     <input
                       type="number"
                       min={0}
@@ -1727,9 +1679,7 @@ export default function Dashboard() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] text-slate-400">
-                      Fin (seg)
-                    </label>
+                    <label className="block text-[11px] text-slate-400">Fin (seg)</label>
                     <input
                       type="number"
                       min={editingClip.startTime + 3}
@@ -1740,9 +1690,7 @@ export default function Dashboard() {
                           editingClip.startTime + 3,
                           Number(e.target.value) || editingClip.startTime + 3,
                         );
-                        setEditingClip((cur) =>
-                          cur ? { ...cur, endTime: val } : null,
-                        );
+                        setEditingClip((cur) => (cur ? { ...cur, endTime: val } : null));
                       }}
                       className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-100 outline-none focus:border-indigo-500"
                     />
@@ -1760,9 +1708,7 @@ export default function Dashboard() {
                     type="text"
                     value={editingClip.title || ''}
                     onChange={(e) =>
-                      setEditingClip((cur) =>
-                        cur ? { ...cur, title: e.target.value } : null,
-                      )
+                      setEditingClip((cur) => (cur ? { ...cur, title: e.target.value } : null))
                     }
                     className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 outline-none focus:border-indigo-500"
                   />
@@ -1777,9 +1723,7 @@ export default function Dashboard() {
                     value={editingClip.hookText || ''}
                     placeholder="Ej: El error #1 que nadie te cuenta..."
                     onChange={(e) =>
-                      setEditingClip((cur) =>
-                        cur ? { ...cur, hookText: e.target.value } : null,
-                      )
+                      setEditingClip((cur) => (cur ? { ...cur, hookText: e.target.value } : null))
                     }
                     className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 outline-none focus:border-indigo-500"
                   />
@@ -1794,9 +1738,7 @@ export default function Dashboard() {
                       value={editingClip.hookStyle || 'pill'}
                       onChange={(e) =>
                         setEditingClip((cur) =>
-                          cur
-                            ? { ...cur, hookStyle: e.target.value as HookStyle }
-                            : null,
+                          cur ? { ...cur, hookStyle: e.target.value as HookStyle } : null,
                         )
                       }
                       className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/70 px-2.5 py-2 text-xs text-slate-200 outline-none"
@@ -1807,9 +1749,7 @@ export default function Dashboard() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400">
-                      Posición
-                    </label>
+                    <label className="block text-xs font-medium text-slate-400">Posición</label>
                     <select
                       value={editingClip.hookPosition || 'top'}
                       onChange={(e) =>
@@ -1840,9 +1780,7 @@ export default function Dashboard() {
                       value={editingClip.layoutMode || 'AUTO'}
                       onChange={(e) =>
                         setEditingClip((cur) =>
-                          cur
-                            ? { ...cur, layoutMode: e.target.value as LayoutMode }
-                            : null,
+                          cur ? { ...cur, layoutMode: e.target.value as LayoutMode } : null,
                         )
                       }
                       className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/70 px-2.5 py-2 text-xs text-slate-200 outline-none"
@@ -1865,9 +1803,7 @@ export default function Dashboard() {
                     value={editingClip.caption || ''}
                     placeholder="Descripción y hashtags para TikTok, Reels o YouTube Shorts..."
                     onChange={(e) =>
-                      setEditingClip((cur) =>
-                        cur ? { ...cur, caption: e.target.value } : null,
-                      )
+                      setEditingClip((cur) => (cur ? { ...cur, caption: e.target.value } : null))
                     }
                     className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 outline-none focus:border-indigo-500"
                   />
@@ -1920,11 +1856,8 @@ export default function Dashboard() {
             <h3 className="text-lg font-bold text-slate-100">Eliminar video</h3>
             <p className="mt-2 text-sm text-slate-400">
               Se eliminará{' '}
-              <span className="font-semibold text-slate-200">
-                “{confirmTarget.title}”
-              </span>{' '}
-              junto con sus clips y los archivos en S3. Esta acción no se puede
-              deshacer.
+              <span className="font-semibold text-slate-200">“{confirmTarget.title}”</span> junto
+              con sus clips y los archivos en S3. Esta acción no se puede deshacer.
             </p>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -1990,20 +1923,18 @@ function HookOverlayPreview({
     position === 'center'
       ? 'top-1/2 -translate-y-1/2'
       : position === 'bottom'
-      ? 'bottom-10'
-      : 'top-3';
+        ? 'bottom-10'
+        : 'top-3';
 
   const boxClass =
     style === 'banner'
       ? 'bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white shadow-lg'
       : style === 'minimal'
-      ? 'bg-black/60 text-white backdrop-blur-sm'
-      : 'bg-white text-slate-950 shadow-xl';
+        ? 'bg-black/60 text-white backdrop-blur-sm'
+        : 'bg-white text-slate-950 shadow-xl';
 
   return (
-    <div
-      className={`pointer-events-none absolute inset-x-3 flex justify-center ${posClass}`}
-    >
+    <div className={`pointer-events-none absolute inset-x-3 flex justify-center ${posClass}`}>
       <span
         className={`max-w-[92%] rounded-lg px-2.5 py-1 text-center text-[11px] font-extrabold uppercase leading-tight tracking-tight ${boxClass}`}
       >

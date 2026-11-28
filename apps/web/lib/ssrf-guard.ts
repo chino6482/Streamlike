@@ -9,9 +9,7 @@ export class UnsafeUrlError extends Error {
 }
 
 function ipv4ToInt(ip: string): number {
-  return ip
-    .split('.')
-    .reduce((acc, oct) => ((acc << 8) | (parseInt(oct, 10) & 0xff)) >>> 0, 0);
+  return ip.split('.').reduce((acc, oct) => ((acc << 8) | (parseInt(oct, 10) & 0xff)) >>> 0, 0);
 }
 
 function isPublicIpv4(ip: string): boolean {
@@ -26,20 +24,20 @@ function isPublicIpv4(ip: string): boolean {
     return (n & mask) === (base & mask);
   };
 
-  if (inRange('0.0.0.0', 8)) return false;       // "this" network
-  if (inRange('10.0.0.0', 8)) return false;      // RFC1918 private
-  if (inRange('100.64.0.0', 10)) return false;   // CGNAT / Tailscale
-  if (inRange('127.0.0.0', 8)) return false;     // Loopback
-  if (inRange('169.254.0.0', 16)) return false;  // Link-local / Cloud metadata
-  if (inRange('172.16.0.0', 12)) return false;   // RFC1918 private
-  if (inRange('192.0.0.0', 24)) return false;    // IETF protocol
-  if (inRange('192.0.2.0', 24)) return false;    // TEST-NET-1
-  if (inRange('192.168.0.0', 16)) return false;  // RFC1918 private
-  if (inRange('198.18.0.0', 15)) return false;   // Benchmarking
+  if (inRange('0.0.0.0', 8)) return false; // "this" network
+  if (inRange('10.0.0.0', 8)) return false; // RFC1918 private
+  if (inRange('100.64.0.0', 10)) return false; // CGNAT / Tailscale
+  if (inRange('127.0.0.0', 8)) return false; // Loopback
+  if (inRange('169.254.0.0', 16)) return false; // Link-local / Cloud metadata
+  if (inRange('172.16.0.0', 12)) return false; // RFC1918 private
+  if (inRange('192.0.0.0', 24)) return false; // IETF protocol
+  if (inRange('192.0.2.0', 24)) return false; // TEST-NET-1
+  if (inRange('192.168.0.0', 16)) return false; // RFC1918 private
+  if (inRange('198.18.0.0', 15)) return false; // Benchmarking
   if (inRange('198.51.100.0', 24)) return false; // TEST-NET-2
-  if (inRange('203.0.113.0', 24)) return false;  // TEST-NET-3
-  if (inRange('224.0.0.0', 4)) return false;     // Multicast
-  if (inRange('240.0.0.0', 4)) return false;     // Reserved / Broadcast
+  if (inRange('203.0.113.0', 24)) return false; // TEST-NET-3
+  if (inRange('224.0.0.0', 4)) return false; // Multicast
+  if (inRange('240.0.0.0', 4)) return false; // Reserved / Broadcast
   return true;
 }
 
@@ -55,7 +53,12 @@ export function isPublicIp(rawIp: string): boolean {
     }
     // Unique local fc00::/7 (fc.. / fd..), link-local fe80::/10, multicast ff00::/8
     if (ip.startsWith('fc') || ip.startsWith('fd')) return false;
-    if (ip.startsWith('fe8') || ip.startsWith('fe9') || ip.startsWith('fea') || ip.startsWith('feb')) {
+    if (
+      ip.startsWith('fe8') ||
+      ip.startsWith('fe9') ||
+      ip.startsWith('fea') ||
+      ip.startsWith('feb')
+    ) {
       return false;
     }
     if (ip.startsWith('ff')) return false;
@@ -84,7 +87,12 @@ export async function assertPublicUrl(rawUrl: string): Promise<string> {
   }
 
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (!hostname || hostname === 'localhost' || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
+  if (
+    !hostname ||
+    hostname === 'localhost' ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal')
+  ) {
     throw new UnsafeUrlError('Host interno o loopback bloqueado');
   }
 

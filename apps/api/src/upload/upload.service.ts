@@ -1,15 +1,15 @@
-import { Injectable, Inject, OnModuleInit, Logger, BadRequestException } from '@nestjs/common';
 import {
-  S3Client,
-  PutObjectCommand,
-  HeadBucketCommand,
   CreateBucketCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { PresignDto } from './dto/presign.dto';
-import { S3_CLIENT } from '../s3/s3.module';
-import { rewritePresignedS3Url } from '../s3/s3.config';
+import { BadRequestException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { sanitizeStorageKey, UnsafeUrlError } from '../common/ssrf-guard';
+import { rewritePresignedS3Url } from '../s3/s3.config';
+import { S3_CLIENT } from '../s3/s3.module';
+import { PresignDto } from './dto/presign.dto';
 
 @Injectable()
 export class UploadService implements OnModuleInit {

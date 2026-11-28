@@ -16,4 +16,5 @@ try {
   };
   prisma = new Proxy({} as PrismaClient, { get: () => noOp });
 }
+
 export { prisma };

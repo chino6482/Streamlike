@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  mockStore,
-  recutClipReal,
-  HookPosition,
-  HookStyle,
-  LayoutMode,
-} from '@/lib/mock-store';
+import { HookPosition, HookStyle, LayoutMode, mockStore, recutClipReal } from '@/lib/mock-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,10 +19,7 @@ export async function PATCH(
 ) {
   const video = mockStore.videos.get(params.id);
   if (!video) {
-    return NextResponse.json(
-      { message: `Video with ID ${params.id} not found` },
-      { status: 404 },
-    );
+    return NextResponse.json({ message: `Video with ID ${params.id} not found` }, { status: 404 });
   }
 
   const clip = video.clips.find((c) => c.id === params.clipId);

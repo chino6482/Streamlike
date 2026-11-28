@@ -1,11 +1,11 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import {
-  formatAssTimestamp,
-  splitTranscriptIntoBlocks,
   buildSubtitleCues,
-  generateAssContent,
   escapeFfmpegFilterPath,
+  formatAssTimestamp,
+  generateAssContent,
+  splitTranscriptIntoBlocks,
 } from './subtitle-generator';
 
 test('formatAssTimestamp formats H:MM:SS.cc accurately including centisecond rounding', () => {
@@ -18,18 +18,19 @@ test('formatAssTimestamp formats H:MM:SS.cc accurately including centisecond rou
 
 test('splitTranscriptIntoBlocks produces 3-4 word blocks without orphan 1-word tail when possible', () => {
   assert.deepEqual(splitTranscriptIntoBlocks(''), []);
-  assert.deepEqual(
-    splitTranscriptIntoBlocks('Uno dos tres cuatro cinco'),
-    ['Uno dos tres', 'cuatro cinco'],
-  );
+  assert.deepEqual(splitTranscriptIntoBlocks('Uno dos tres cuatro cinco'), [
+    'Uno dos tres',
+    'cuatro cinco',
+  ]);
   assert.deepEqual(
     splitTranscriptIntoBlocks('Esta es una prueba de subtítulos dinámicos virales'),
     ['Esta es una prueba', 'de subtítulos dinámicos virales'],
   );
-  assert.deepEqual(
-    splitTranscriptIntoBlocks('Uno dos tres cuatro cinco seis siete ocho nueve'),
-    ['Uno dos tres cuatro', 'cinco seis siete', 'ocho nueve'],
-  );
+  assert.deepEqual(splitTranscriptIntoBlocks('Uno dos tres cuatro cinco seis siete ocho nueve'), [
+    'Uno dos tres cuatro',
+    'cinco seis siete',
+    'ocho nueve',
+  ]);
 });
 
 test('buildSubtitleCues distributes proportional timestamps from 0 to clipDuration and supports precise wordTimestamps', () => {
@@ -63,10 +64,7 @@ test('buildSubtitleCues distributes proportional timestamps from 0 to clipDurati
 });
 
 test('generateAssContent includes 1080x1920 PlayRes, bold white style, Outline=3, MarginV=380, and escaped dialogue', () => {
-  assert.equal(
-    generateAssContent({ transcript: '   ', startTime: 0, endTime: 25 }),
-    null,
-  );
+  assert.equal(generateAssContent({ transcript: '   ', startTime: 0, endTime: 25 }), null);
 
   const ass = generateAssContent({
     transcript: 'Mira {esto} rápido ahora mismo',
@@ -76,14 +74,14 @@ test('generateAssContent includes 1080x1920 PlayRes, bold white style, Outline=3
   assert.ok(ass);
   assert.match(ass, /PlayResX: 1080/);
   assert.match(ass, /PlayResY: 1920/);
-  assert.match(ass, /Style: ViralBold,DejaVu Sans,68,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,60,60,380,1/);
+  assert.match(
+    ass,
+    /Style: ViralBold,DejaVu Sans,68,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,60,60,380,1/,
+  );
   assert.match(ass, /Dialogue: 0,0:00:00\.00,.*,ViralBold,,0,0,0,,Mira \\\{esto\\\}/);
   assert.match(ass, /0:00:25\.00,ViralBold/);
 });
 
 test('escapeFfmpegFilterPath escapes colons, quotes, brackets and backslashes', () => {
-  assert.equal(
-    escapeFfmpegFilterPath('C:\\tmp\\clip:1[v].ass'),
-    'C\\:/tmp/clip\\:1\\[v\\].ass',
-  );
+  assert.equal(escapeFfmpegFilterPath('C:\\tmp\\clip:1[v].ass'), 'C\\:/tmp/clip\\:1\\[v\\].ass');
 });

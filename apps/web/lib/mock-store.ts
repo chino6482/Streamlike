@@ -1,24 +1,19 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { generateViralClipMetadata } from './gemini-clips';
 import {
-  downloadVideoFromUrl,
-  captureLiveStreamLocal,
-  probeVideoDuration,
   analyzeVideoLoudness,
   analyzeVideoScenes,
-  pickAudioSceneHighlights,
+  captureLiveStreamLocal,
   cutClipWithFfmpeg,
+  downloadVideoFromUrl,
   getClipTempPath,
+  pickAudioSceneHighlights,
+  probeVideoDuration,
 } from './video-processor';
-import { generateViralClipMetadata } from './gemini-clips';
 
-export type LayoutMode =
-  | 'AUTO'
-  | 'VERTICAL_CROP'
-  | 'BLUR_FILL'
-  | 'SPLIT'
-  | 'SCREENCAST';
+export type LayoutMode = 'AUTO' | 'VERTICAL_CROP' | 'BLUR_FILL' | 'SPLIT' | 'SCREENCAST';
 
 export type HookStyle = 'pill' | 'banner' | 'minimal';
 export type HookPosition = 'top' | 'center' | 'bottom';
@@ -103,7 +98,7 @@ if (!mockStore.liveStopHandlers) {
 
 export function stopLiveLocal(videoId: string): boolean {
   const v = mockStore.videos.get(videoId);
-  if (!v || !v.isLiveCapture) return false;
+  if (!v?.isLiveCapture) return false;
   if (v.liveStatus === 'FINISHED') return false;
   v.liveStatus = 'STOPPED';
   v.phase = 'ANALYZING';
@@ -115,15 +110,11 @@ export function stopLiveLocal(videoId: string): boolean {
 }
 
 export function getUploadTempPath(key: string): string {
-  const safeKey = path.basename(key).replace(/[^\w.\-]+/g, '_');
+  const safeKey = path.basename(key).replace(/[^\w.-]+/g, '_');
   return path.join(os.tmpdir(), `streamlike-${safeKey}`);
 }
 
-export function saveUploadedFile(
-  key: string,
-  data: Buffer,
-  contentType: string,
-): string {
+export function saveUploadedFile(key: string, data: Buffer, contentType: string): string {
   const filePath = getUploadTempPath(key);
   fs.writeFileSync(filePath, data);
   mockStore.files.set(key, { filePath, contentType });
@@ -152,9 +143,7 @@ export function getClipFilePath(clipId: string): string | undefined {
 }
 
 export function deleteVideoFiles(video: MockVideo): void {
-  const keys = [video.s3Key, video.originalKey].filter((k): k is string =>
-    Boolean(k),
-  );
+  const keys = [video.s3Key, video.originalKey].filter((k): k is string => Boolean(k));
   for (const key of keys) {
     const meta = mockStore.files.get(key);
     if (meta && fs.existsSync(meta.filePath)) {
@@ -214,10 +203,7 @@ export function startRealVideoProcessing(
         if (v.liveStatus !== 'STOPPED') {
           v.liveStatus = 'RECORDING';
         }
-        const boundedMinutes = Math.max(
-          5,
-          Math.min(120, Math.round(v.liveDurationMinutes || 30)),
-        );
+        const boundedMinutes = Math.max(5, Math.min(120, Math.round(v.liveDurationMinutes || 30)));
         const captureRes = await captureLiveStreamLocal(v.sourceUrl, targetPath, {
           maxDurationSeconds: boundedMinutes * 60,
           cookiesText: options?.cookiesText,
@@ -233,9 +219,7 @@ export function startRealVideoProcessing(
         v.liveRecordedSeconds = captureRes.recordedSeconds;
         v.liveFileSizeBytes = captureRes.fileSizeBytes;
         v.liveStatus =
-          captureRes.stoppedManually || v.liveStatus === 'STOPPED'
-            ? 'STOPPED'
-            : 'FINISHED';
+          captureRes.stoppedManually || v.liveStatus === 'STOPPED' ? 'STOPPED' : 'FINISHED';
         sourcePath = targetPath;
         if (keepOriginal) {
           registerExistingFile(downloadedKey, targetPath, 'video/mp4');
@@ -290,18 +274,9 @@ export function startRealVideoProcessing(
         analyzeVideoScenes(sourcePath).catch(() => []),
       ]);
 
-      const clipLen = Math.min(
-        Math.max(5, v.clipDuration || 15),
-        Math.max(5, duration),
-      );
+      const clipLen = Math.min(Math.max(5, v.clipDuration || 15), Math.max(5, duration));
       const maxClips = Math.min(3, computeAdaptiveClipCount(duration));
-      const highlights = pickAudioSceneHighlights(
-        samples,
-        sceneTimes,
-        duration,
-        clipLen,
-        maxClips,
-      );
+      const highlights = pickAudioSceneHighlights(samples, sceneTimes, duration, clipLen, maxClips);
 
       // Cortar clips reales con FFmpeg
       v.phase = 'CUTTING';
@@ -358,8 +333,7 @@ export function startRealVideoProcessing(
       // Enriquecimiento automático opcional con Gemini si hay clave del usuario o de entorno
       const hasEffectiveGeminiKey = Boolean(
         options?.geminiApiKey?.trim() ||
-          (process.env.GEMINI_API_KEY &&
-            process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY'),
+          (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY'),
       );
 
       if (hasEffectiveGeminiKey && createdClips.length > 0) {
@@ -399,10 +373,7 @@ export function startRealVideoProcessing(
             clip.hookReason = match.why;
             clip.caption = match.caption;
             if (Number.isFinite(match.suggestedScore)) {
-              const bounded = Math.max(
-                0,
-                Math.min(100, Math.round(match.suggestedScore)),
-              );
+              const bounded = Math.max(0, Math.min(100, Math.round(match.suggestedScore)));
               clip.score = bounded;
               clip.viralScore = bounded;
             }
@@ -440,10 +411,7 @@ export function startRealVideoProcessing(
 /**
  * Re-corta un clip existente con FFmpeg cuando el usuario ajusta inicio/fin o layout en el editor.
  */
-export async function recutClipReal(
-  video: MockVideo,
-  clip: MockClip,
-): Promise<void> {
+export async function recutClipReal(video: MockVideo, clip: MockClip): Promise<void> {
   const keyToFind = video.originalKey || video.s3Key;
   const uploaded = getUploadedFile(keyToFind);
   if (!uploaded) {

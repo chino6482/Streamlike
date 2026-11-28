@@ -1,29 +1,25 @@
+import { DeleteObjectsCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { InjectQueue } from '@nestjs/bullmq';
 import {
-  Injectable,
-  NotFoundException,
   BadRequestException,
   ConflictException,
   Inject,
+  Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { S3Client, DeleteObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { assertPublicUrl, sanitizeStorageKey, UnsafeUrlError } from '../common/ssrf-guard';
 import { prisma } from '../prisma.service';
+import { RedisService } from '../redis.service';
+import { rewritePresignedS3Url } from '../s3/s3.config';
+import { S3_CLIENT } from '../s3/s3.module';
 import {
   CreateVideoDto,
-  VideoProcessingContext,
   normalizeLiveDurationMinutes,
+  VideoProcessingContext,
 } from './dto/create-video.dto';
-import { S3_CLIENT } from '../s3/s3.module';
-import { rewritePresignedS3Url } from '../s3/s3.config';
-import { RedisService } from '../redis.service';
-import {
-  assertPublicUrl,
-  sanitizeStorageKey,
-  UnsafeUrlError,
-} from '../common/ssrf-guard';
 
 @Injectable()
 export class VideoService {
@@ -224,11 +220,9 @@ export class VideoService {
     }
 
     const bucket = process.env.S3_BUCKET;
-    const keys = [
-      video.s3Key,
-      video.originalKey,
-      ...video.clips.map((c) => c.s3Key),
-    ].filter((k): k is string => Boolean(k));
+    const keys = [video.s3Key, video.originalKey, ...video.clips.map((c) => c.s3Key)].filter(
+      (k): k is string => Boolean(k),
+    );
 
     if (bucket && keys.length > 0) {
       try {
@@ -281,7 +275,7 @@ export class VideoService {
       await getSignedUrl(this.s3Client, command, { expiresIn: 900 }),
     );
 
-    const safeTitle = (video.title || 'video').replace(/[^\w.\-]+/g, '_');
+    const safeTitle = (video.title || 'video').replace(/[^\w.-]+/g, '_');
     const filename = `${safeTitle}.mp4`;
 
     return { id, url, filename, expiresIn: 900 };

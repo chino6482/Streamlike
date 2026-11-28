@@ -1,5 +1,5 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import { resolveS3ClientConfig, rewritePresignedS3Url } from './s3.config';
 
 test('resolveS3ClientConfig handles auto region and forcePathStyle for R2, Supabase, and LocalStack', () => {

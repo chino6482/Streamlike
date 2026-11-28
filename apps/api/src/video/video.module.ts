@@ -1,10 +1,10 @@
-import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { VideoController } from './video.controller';
-import { VideoService } from './video.service';
-import { VideoGateway } from './video.gateway';
+import { Module } from '@nestjs/common';
 import { RedisService } from '../redis.service';
 import { S3Module } from '../s3/s3.module';
+import { VideoController } from './video.controller';
+import { VideoGateway } from './video.gateway';
+import { VideoService } from './video.service';
 
 @Module({
   imports: [

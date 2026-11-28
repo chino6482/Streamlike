@@ -1,4 +1,4 @@
-import { execFile, spawn, ChildProcess } from 'child_process';
+import { ChildProcess, execFile, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -25,11 +25,7 @@ function isElfBinary(filePath: string): boolean {
     const bytesRead = fs.readSync(fd, buf, 0, 4, 0);
     fs.closeSync(fd);
     return (
-      bytesRead === 4 &&
-      buf[0] === 0x7f &&
-      buf[1] === 0x45 &&
-      buf[2] === 0x4c &&
-      buf[3] === 0x46
+      bytesRead === 4 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46
     );
   } catch {
     return false;
@@ -109,10 +105,7 @@ function resolveCookiesFile(cookiesText?: string): {
   if (raw) {
     const normalized = sanitizeCookiesText(raw);
     if (normalized) {
-      const tmpCookie = path.join(
-        os.tmpdir(),
-        `streamlike-cookies-${crypto.randomUUID()}.txt`,
-      );
+      const tmpCookie = path.join(os.tmpdir(), `streamlike-cookies-${crypto.randomUUID()}.txt`);
       fs.writeFileSync(tmpCookie, normalized, { encoding: 'utf8', mode: 0o600 });
       return {
         cookiePath: tmpCookie,
@@ -581,23 +574,10 @@ export async function probeVideoDuration(filePath: string): Promise<number> {
   return Number.isFinite(val) ? Math.max(0, Math.round(val)) : 0;
 }
 
-export async function analyzeVideoLoudness(
-  filePath: string,
-): Promise<LoudnessSample[]> {
+export async function analyzeVideoLoudness(filePath: string): Promise<LoudnessSample[]> {
   const { stderr } = await runExecFile(
     'ffmpeg',
-    [
-      '-hide_banner',
-      '-nostats',
-      '-i',
-      filePath,
-      '-vn',
-      '-af',
-      'ebur128',
-      '-f',
-      'null',
-      '-',
-    ],
+    ['-hide_banner', '-nostats', '-i', filePath, '-vn', '-af', 'ebur128', '-f', 'null', '-'],
     90_000,
   ).catch((err) => ({ stdout: '', stderr: String(err.message || '') }));
 
@@ -735,8 +715,7 @@ export async function cutClipWithFfmpeg(options: {
   format: 'VERTICAL' | 'HORIZONTAL';
   layoutMode?: LayoutMode;
 }): Promise<void> {
-  const { sourcePath, outPath, startTime, duration, format, layoutMode = 'AUTO' } =
-    options;
+  const { sourcePath, outPath, startTime, duration, format, layoutMode = 'AUTO' } = options;
 
   const args: string[] = [
     '-y',
@@ -777,10 +756,7 @@ export async function cutClipWithFfmpeg(options: {
         '0:a?',
       );
     } else {
-      args.push(
-        '-vf',
-        'scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280',
-      );
+      args.push('-vf', 'scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280');
     }
   } else {
     args.push('-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2');
@@ -811,6 +787,6 @@ export async function cutClipWithFfmpeg(options: {
 }
 
 export function getClipTempPath(clipId: string): string {
-  const safe = clipId.replace(/[^\w\-]+/g, '_');
+  const safe = clipId.replace(/[^\w-]+/g, '_');
   return path.join(os.tmpdir(), `streamlike-clip-${safe}.mp4`);
 }

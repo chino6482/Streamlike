@@ -1,12 +1,12 @@
 import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  IsNumber,
   IsBoolean,
   IsInt,
-  Min,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
   Max,
+  Min,
 } from 'class-validator';
 
 export const DEFAULT_LIVE_DURATION_MINUTES = 30;
@@ -17,10 +17,7 @@ export function normalizeLiveDurationMinutes(raw?: number | null): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) {
     return DEFAULT_LIVE_DURATION_MINUTES;
   }
-  return Math.max(
-    MIN_LIVE_DURATION_MINUTES,
-    Math.min(MAX_LIVE_DURATION_MINUTES, Math.round(raw)),
-  );
+  return Math.max(MIN_LIVE_DURATION_MINUTES, Math.min(MAX_LIVE_DURATION_MINUTES, Math.round(raw)));
 }
 
 export class CreateVideoDto {
@@ -97,9 +94,7 @@ export interface VideoProcessingContext {
   geminiApiKey?: string;
 }
 
-export function sanitizeGeminiHeaderKey(
-  rawHeader?: string | string[],
-): string | undefined {
+export function sanitizeGeminiHeaderKey(rawHeader?: string | string[]): string | undefined {
   const raw = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
   if (typeof raw !== 'string') return undefined;
   const cleaned = raw.replace(/[\r\n\0]/g, '').trim();

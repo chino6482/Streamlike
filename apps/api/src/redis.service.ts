@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Redis } from 'ioredis';
 import * as dotenv from 'dotenv';
+import { Redis } from 'ioredis';
 
 dotenv.config();
 
